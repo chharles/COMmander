@@ -71,8 +71,8 @@ function Get-RegistrySubkeys {
             Write-Output "$key\$subkey"
         }
     }
-
 }
+
 
 
 function Missing-Libraries {
@@ -90,9 +90,46 @@ function Missing-Libraries {
                     continue
                 }
                 # check if the binary exists
-                if (!(Test-Path -Path "$binary".replace('"',''))) {
-                    Write-Output $binary
+                $binary =  "$binary".replace('"','')
+                
+                # deal with rundll32.exe
+                if ($binary -like "*C:\Windows\System32\rundll32*") {
+                    $rundll = $binary -split "rundll32.exe"
+                    $rundll_dll_and_parms = $rundll[1].trim()
+                    
+                    #grab the dll being run by rundll32.exe
+                    if ($rundll_dll_and_parms.contains(".dll")) {
+                        # split on the comma, to grab dll and not the function being called on
+                        if ($rundll_dll_and_parms.contains(',')) {
+                            $rundll_dll = $rundll_dll_and_parms.Split(',')[0]
+                        } else {
+                            $rundll_dll = $rundll_dll_and_parms
+                        }
+    
+                    # if rundll32.exe /sta is being used to load and run GUIDs directly
+                    } elseif ($rundll_dll_and_parms.contains("sta")) {
+                        "!!!!! WARNING! THIS IS SUSPICIOUS !!!!!"
+                        $rundll32_sta_guid = ($rundll_dll_and_parms -split "sta")[1].trim()
+                        $sta_guid_subkeys = Get-ChildItem -Path "Registry::HKCR\CLSID\$rundll32_sta_guid"
+                        foreach ($sta_guid_subkey in $sta_guid_subkeys) {
+                            if ($sta_guid_subkey.Name -like "*procserver*" -or $sta_guid_subkey.Name -like "*localserver*") {
+                                $binary = (Get-ItemProperty $sta_guid_subkey.PSPath).'(default)'
+                            }
+                        }
+                    }
+                    
+                    $binary = $rundll_dll
+                    #$binary = $rundll_parms[0]
                 }
+                
+
+
+                if (!(Test-Path -Path "$binary")) {
+                    $binary
+                }
+
+
+                
             }
         }
     }
