@@ -76,6 +76,8 @@ function Get-RegistrySubkeys {
 
 
 function Missing-Libraries {
+    $User = $env:USERNAME
+    
     # grab all of the HKCR CLSIDs subkeys
     $HKCR_CLSID_Subkeys = Get-RegistrySubkeys
     foreach ($key in $HKCR_CLSID_Subkeys) {
@@ -165,14 +167,30 @@ function Missing-Libraries {
 
                 }
 
+                #check to see if thi binary exists
                 if (!(Test-Path -Path "$binary")) {
                     # if the binary can't be found in the current path
                     if (!(Get-Command "$binary") 2>$null) {
                         # need to add a check to see if the path can be modified by the current user context
                         "$guid -> $binary"
+                        $path = Split-Path $binary
+                        while ($path) {
+                            if (!(Test-Path -Path "$path")) {
+                                #Write-Output "$path does not exist"
+                            } else {
+                                try{
+                                    New-Item -Path $path -Name "COMPermissionTest.txt" -ItemType "file" -Value "test" | Out-Null
+                                    Remove-Item -Path "$path\COMPermissionTest.txt" | Out-Null
+                                    Write-Output "current user context can write to $path"
+                                    break
+                                } catch {
+                                    # do nothing
+                                }
+                            }
+                            $path = Split-Path $path
+                        }
                     }
                 }
-
 
                 
             }
