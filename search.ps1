@@ -83,6 +83,7 @@ function Missing-Libraries {
         foreach ($subkey in $Subkeys) {
             # look for keys with InprocServer32 or localServer32 (exes and dlls)
             if ($subkey.Name -like "*procserver*" -or $subkey.Name -like "*localserver*") {
+                $guid = ($subkey.Name).Split('\')[2]
                 # grab the binary associated with the subkey
                 $binary = (Get-ItemProperty $subkey.PSPath).'(default)'
                 # if the binary string is empty, move on to the next subkey
@@ -107,25 +108,69 @@ function Missing-Libraries {
                         }
     
                     # if rundll32.exe /sta is being used to load and run GUIDs directly
+                    # This is VERY suspicious
                     } elseif ($rundll_dll_and_parms.contains("sta")) {
-                        "!!!!! WARNING! THIS IS SUSPICIOUS !!!!!"
+                        "`n`n!!!!! WARNING THIS IS SUSPICIOUS !!!!!"
+                        $binary
                         $rundll32_sta_guid = ($rundll_dll_and_parms -split "sta")[1].trim()
                         $sta_guid_subkeys = Get-ChildItem -Path "Registry::HKCR\CLSID\$rundll32_sta_guid"
                         foreach ($sta_guid_subkey in $sta_guid_subkeys) {
                             if ($sta_guid_subkey.Name -like "*procserver*" -or $sta_guid_subkey.Name -like "*localserver*") {
                                 $binary = (Get-ItemProperty $sta_guid_subkey.PSPath).'(default)'
+                                "$rundll32_sta_guid -> $binary`n`n"
                             }
                         }
                     }
                     
                     $binary = $rundll_dll
-                    #$binary = $rundll_parms[0]
                 }
                 
+                # split on exes with parameters
+                if ($binary -like "*.exe /*" -or $binary -like "*.exe -*" -or $binary -like "*.exe *") {
+                
+                    # explorer.exe /factory,{GUID} LOLBAS https://twitter.com/sbousseaden/status/1365038669447524358?lang=en
+                    if ($binary -like "*explorer.exe /factory*") {
+                        $explorer_guid = $binary.Split(',')[1]
+                        $explorer_guid_subkeys = Get-ChildItem -Path "Registry::HKCR\CLSID\$explorer_guid"
+                        foreach ($explorer_guid_subkey in $explorer_guid_subkeys) {
+                            if ($explorer_guid_subkey.Name -like "*procserver*" -or $explorer_guid_subkey.Name -like "*localserver*") {
+                                $directed_binary = (Get-ItemProperty $explorer_guid_subkey.PSPath).'(default)'
+                                if ($directed_binary -ne $binary) {
+                                    "`n`n!!!!! WARNING THIS IS SUSPICIOUS !!!!!"
+                                    "https://twitter.com/sbousseaden/status/1365038669447524358?lang=en"
+                                    $binary
+                                    "$explorer_guid -> $directed_binary`n`n"
+                                } else {
+                                    $binary = "explorer.exe"
+                                }
+                            }
+                        }
+                    }
 
+                    # split on '.exe -'
+                    if ($binary -like "*.exe -*") {
+                        $binary_exe = $binary -split ".exe -"
+                        $binary = $binary_exe[0] + '.exe'
+                    }
+                    #split on '.exe /'
+                    elseif ($binary -like "*.exe /*") {
+                        $binary_exe = $binary -split ".exe /"
+                        $binary = $binary_exe[0] + '.exe'
+                    } 
+                    # split on '.exe ' MAY BE TROUBLESOME
+                    elseif ($binary -like "*.exe *") {
+                        $binary_exe = $binary -split ".exe "
+                        $binary = $binary_exe[0] + '.exe'
+                    }
+
+                }
 
                 if (!(Test-Path -Path "$binary")) {
-                    $binary
+                    # if the binary can't be found in the current path
+                    if (!(Get-Command "$binary") 2>$null) {
+                        # need to add a check to see if the path can be modified by the current user context
+                        "$guid -> $binary"
+                    }
                 }
 
 
