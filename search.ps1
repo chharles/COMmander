@@ -4,7 +4,7 @@
 
 
 # looks for scheduled tasks that are hijackable
-function Hijackable-Scheduled-Tasks {
+function Get-Scheduled-Tasks-Missing-HKCU {
     $tasks = Get-ScheduledTask
     $fields = @()
     $targets = New-Object System.Collections.Generic.Dictionary"[String,[System.Collections.ArrayList]]"
@@ -195,6 +195,56 @@ function Missing-Libraries {
                 
             }
         }
+    }
+}
+
+# requires administative privs
+#inspired by https://github.com/enigma0x3/Misc-PowerShell-Stuff/blob/master/Get-ScheduledTaskComHandler.ps1
+function Hijackable-Scheduled-Tasks {
+    $path = "$env:windir\System32\Tasks"
+    # requires administative privs
+    # Get-ChildItem -Path $path -Recurse 
+    # does not require administrative privs
+    $tasks = Get-ScheduledTask
+    foreach ($task in $tasks) {
+        $task_name = $task.TaskName
+        $task_path = "$path" + $task.URI # full Path of the task
+        $taskXML = [xml] (Get-Content $task_path)
+        if ($taskXML.Task.Actions.ComHandler) {
+            $TaskTrigger = $taskXML.Task.Triggers.OuterXML
+            $COM = $taskXML.Task.Actions.ComHandler.ClassID
+            
+            $dll = ""
+            $exe = ""
+            $dll_obj = Get-Item -LiteralPath Registry::HKCR\CLSID\$COM\InProcServer32 -ErrorAction SilentlyContinue
+            $exe_obj = Get-Item -LiteralPath Registry::HKCR\CLSID\$COM\LocalServer32 -ErrorAction SilentlyContinue
+            if ($dll_obj){
+                $dll = (Get-ItemProperty -LiteralPath Registry::HKCR\CLSID\$COM\InProcServer32).'(default)'
+            }
+            if ($exe_obj) {
+                $exe = (Get-ItemProperty -LiteralPath Registry::HKCR\CLSID\$COM\LocalServer32).'(default)' # this was not included
+            }
+
+            
+
+            $Out = New-Object PSObject
+            $Out | Add-Member Noteproperty 'Taskname' $task_name
+            $Out | Add-Member Noteproperty 'CLSID' $COM
+            $Out | Add-Member Noteproperty 'dll' $dll
+            $Out | Add-Member Noteproperty 'exe' $exe
+            $Out | Add-Member Noteproperty 'Logon' $False
+            
+            $null = $TaskXML.Task.InnerXml -match 'Context="(?<Context>InteractiveUsers|AllUsers|AnyUser)"'
+
+            $IsUserContext = $False
+            if ($Matches['Context']) { $IsUserContext = $True}
+            $Out | Add-Member Noteproperty 'IsUserContext' $IsUserContext
+
+            if ($TaskTrigger -and $TaskTrigger.Contains('LogonTrigger')) {
+                $Out.Logon = $True
+            }
+        }
+        $Out
     }
 }
 
