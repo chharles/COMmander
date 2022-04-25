@@ -1,3 +1,9 @@
+# references:
+# https://pentestlab.blog/2020/05/20/persistence-com-hijacking/
+#   List of lots of different techniques
+
+
+# looks for scheduled tasks that are hijackable
 function Hijackable-Scheduled-Tasks {
     $tasks = Get-ScheduledTask
     $fields = @()
@@ -46,10 +52,50 @@ function Hijackable-Scheduled-Tasks {
             "HKCU and HKLM both contain pathes to COM Objects"   
         }
         else {
-            "$($val) may be vulnerable to COM Hijacking"
+            "$($val) ($($HKLM_targets.$val)) may be vulnerable to COM Hijacking"
         }
     }
     
+}
+
+# Source : https://github.com/nccgroup/acCOMplice/blob/master/COMHijackToolkit/COMHijackToolkit.ps1
+function Get-RegistrySubkeys {
+    $HKCR_CLSID = "Registry::HKCR\CLSID"
+    # grabs all of the HKCR CLSIDs
+    $HKCR_Keys = Get-ChildItem -Path $HKCR_CLSID
+    # iterate over all of the HKCR CLSIDs
+    foreach ($Key in $HKCR_Keys) {
+        # get the Subkeys for each CLSID
+        $Subkeys = $key.GetSubkeyNames()
+        foreach ($subkey in $Subkeys) {
+            Write-Output "$key\$subkey"
+        }
+    }
+
+}
+
+
+function Missing-Libraries {
+    # grab all of the HKCR CLSIDs subkeys
+    $HKCR_CLSID_Subkeys = Get-RegistrySubkeys
+    foreach ($key in $HKCR_CLSID_Subkeys) {
+        $Subkeys = Get-Item -Path "Registry::$key"
+        foreach ($subkey in $Subkeys) {
+            # look for keys with InprocServer32 or localServer32 (exes and dlls)
+            if ($subkey.Name -like "*procserver*" -or $subkey.Name -like "*localserver*") {
+                # grab the binary associated with the subkey
+                $binary = (Get-ItemProperty $subkey.PSPath).'(default)'
+                # if the binary string is empty, move on to the next subkey
+                if (!$binary) {
+                    continue
+                }
+                # check if the binary exists
+                if (!(Test-Path -Path "$binary".replace('"',''))) {
+                    Write-Output $binary
+                }
+            }
+        }
+    }
 }
 
 
