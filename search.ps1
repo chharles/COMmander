@@ -275,7 +275,7 @@ function Hijackable-Scheduled-Tasks {
             $null = $TaskXML.Task.InnerXml -match 'Context="(?<Context>InteractiveUsers|AllUsers|AnyUser)"'
 
             $IsUserContext = $False
-            if ($Matches['Context']) { $IsUserContext = $True}
+            if ($Matches -and $Matches['Context']) { $IsUserContext = $True}
             $Out | Add-Member Noteproperty 'IsUserContext' $IsUserContext
 
             if ($TaskTrigger -and $TaskTrigger.Contains('LogonTrigger')) {
