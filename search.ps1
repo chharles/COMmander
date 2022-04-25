@@ -201,6 +201,20 @@ function Missing-Libraries {
 # requires administative privs
 #inspired by https://github.com/enigma0x3/Misc-PowerShell-Stuff/blob/master/Get-ScheduledTaskComHandler.ps1
 function Hijackable-Scheduled-Tasks {
+
+    param (
+        [Parameter(ParameterSetName = 'OnLogon')]
+        [Switch]
+        $OnLogon,
+        [Parameter(ParameterSetName = 'PersistenceLocations')]
+        [Switch]
+        $PersistenceLocations,
+        [Parameter(ParameterSetName = 'OrderHijack')]
+        [Switch]
+        $OrderHijack
+    )
+    
+
     $path = "$env:windir\System32\Tasks"
     # requires administative privs
     # Get-ChildItem -Path $path -Recurse 
@@ -218,6 +232,7 @@ function Hijackable-Scheduled-Tasks {
             $exe = ""
             $dll_obj = Get-Item -LiteralPath Registry::HKCR\CLSID\$COM\InProcServer32 -ErrorAction SilentlyContinue
             $exe_obj = Get-Item -LiteralPath Registry::HKCR\CLSID\$COM\LocalServer32 -ErrorAction SilentlyContinue
+
             if ($dll_obj){
                 $dll = (Get-ItemProperty -LiteralPath Registry::HKCR\CLSID\$COM\InProcServer32).'(default)'
             }
@@ -225,7 +240,28 @@ function Hijackable-Scheduled-Tasks {
                 $exe = (Get-ItemProperty -LiteralPath Registry::HKCR\CLSID\$COM\LocalServer32).'(default)' # this was not included
             }
 
-            
+            $InHKLM = $False
+            $InHKCU = $False
+            if ($dll_obj) {
+                $HKLM_dll_obj = Get-Item -path Registry::HKLM\Software\Classes\CLSID\$COM\InProcServer32 -ErrorAction SilentlyContinue
+                if ($HKLM_dll_obj){
+                    $InHKLM = $True
+                }
+                $HKCU_dll_obj = Get-Item -path Registry::HKCU\Software\Classes\CLSID\$COM\InProcServer32 -ErrorAction SilentlyContinue
+                if ($HKCU_dll_obj) {
+                    $InHKCU = $True
+                }
+            }
+            if ($exe_obj) {
+                $HKLM_exe_obj = Get-Item -path Registry::HKLM\Software\Classes\CLSID\$COM\LocalServer32 -ErrorAction SilentlyContinue
+                if ($HKLM_exe_obj) {
+                    $InHKLM = $True
+                }
+                $HKCU_exe_obj = Get-Item -path Registry::HKCU\Software\Classes\CLSID\$COM\LocalServer32 -ErrorAction SilentlyContinue
+                if ($HKCU_exe_obj) {
+                    $InHKCU = $True
+                }
+            }
 
             $Out = New-Object PSObject
             $Out | Add-Member Noteproperty 'Taskname' $task_name
@@ -233,7 +269,9 @@ function Hijackable-Scheduled-Tasks {
             $Out | Add-Member Noteproperty 'dll' $dll
             $Out | Add-Member Noteproperty 'exe' $exe
             $Out | Add-Member Noteproperty 'Logon' $False
-            
+            $Out | Add-Member Noteproperty 'InHKCU' $InHKCU
+            $Out | Add-Member Noteproperty 'InHKLM' $InHKLM
+
             $null = $TaskXML.Task.InnerXml -match 'Context="(?<Context>InteractiveUsers|AllUsers|AnyUser)"'
 
             $IsUserContext = $False
@@ -244,7 +282,21 @@ function Hijackable-Scheduled-Tasks {
                 $Out.Logon = $True
             }
         }
-        $Out
+        if ($OnLogon) {
+            if ($Out.Logon) {
+                $Out
+            }
+        } elseif ($PersistenceLocations) {
+            if ($Out.Logon -and $Out.IsUserContext) {
+                $Out
+            }
+        } elseif ($OrderHijack) {
+            if ($Out.Logon -and !($Out.InHKCU) -and $Out.InHKLM) {
+                $Out
+            }
+        } else {
+            $Out
+        }
     }
 }
 
