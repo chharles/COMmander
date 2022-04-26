@@ -1,6 +1,7 @@
 # references:
 # https://pentestlab.blog/2020/05/20/persistence-com-hijacking/
 #   List of lots of different techniques
+# good explanation of missing libraries use https://bohops.com/2018/08/18/abusing-the-com-registry-structure-part-2-loading-techniques-for-evasion-and-persistence/
 
 
 # looks for scheduled tasks that are hijackable
@@ -59,6 +60,7 @@ function Get-Scheduled-Tasks-Missing-HKCU {
 }
 
 # Source : https://github.com/nccgroup/acCOMplice/blob/master/COMHijackToolkit/COMHijackToolkit.ps1
+# TODO: build this out to deal with HKLM and HKCU as well
 function Get-RegistrySubkeys {
     $HKCR_CLSID = "Registry::HKCR\CLSID"
     # grabs all of the HKCR CLSIDs
@@ -73,8 +75,7 @@ function Get-RegistrySubkeys {
     }
 }
 
-
-
+# added checks for rundll32.exes and recursive calls to check the writability of pathes given current user context
 function Missing-Libraries {
     $User = $env:USERNAME
     
@@ -179,8 +180,8 @@ function Missing-Libraries {
                                 #Write-Output "$path does not exist"
                             } else {
                                 try{
-                                    New-Item -Path $path -Name "COMPermissionTest.txt" -ItemType "file" -Value "test" | Out-Null
-                                    Remove-Item -Path "$path\COMPermissionTest.txt" | Out-Null
+                                    New-Item -Path $path -Name "COMPermissionTest.txt" -ItemType "file" -Value "test" 2>$null| Out-Null
+                                    Remove-Item -Path "$path\COMPermissionTest.txt" 2>$null | Out-Null
                                     Write-Output "current user context can write to $path"
                                     break
                                 } catch {
@@ -302,8 +303,9 @@ function Create_Malicious_GUID($GUID, $binary) {
 
 }
 
-# requires administative privs
 #inspired by https://github.com/enigma0x3/Misc-PowerShell-Stuff/blob/master/Get-ScheduledTaskComHandler.ps1
+# added the capability to search for exes (localserver32) in addition to dlls
+# TODO: Compare HKLM and HKCU see if they are the same
 function Hijackable-Scheduled-Tasks {
 
     param (
@@ -400,6 +402,66 @@ function Hijackable-Scheduled-Tasks {
             }
         } else {
             $Out
+        }
+    }
+}
+
+# consider add HKLM and HKCU
+function Get-All-TreatAs-Objects {
+    $HKCR_CLSID_Subkeys = Get-RegistrySubkeys
+    foreach ($key in $HKCR_CLSID_Subkeys) {
+        $Subkey = Get-Item -Path "Registry::$key"
+        if ($Subkey.Name -like "*treatas*") {
+            Write-Output $Subkey.Name
+        }     
+    } 
+}
+
+function Check-All-TreatAs-Objects {
+    # search for COM objects with TreatAS key
+    $all_treatas_targets = @{}
+    $All_TreatAs_Objects = Get-All-TreatAs-Objects
+    foreach ($obj_name in $All_TreatAs_Objects) {
+        $obj = Get-Item -path "Registry::$obj_name" 
+        $treatas_target = (Get-ItemProperty $obj.PSPath).'(default)'
+        if ($all_treatas_targets.containskey($treatas_target)) {
+            ($all_treatas_targets[$treatas_target]).Add($obj_name) | Out-Null
+        } else {
+            $all_treatas_targets[$treatas_target] = [System.Collections.ArrayList]@()
+            ($all_treatas_targets[$treatas_target]).Add($obj_name) | Out-Null
+        }
+    }
+    foreach ($target in $all_treatas_targets.Keys) {
+        # TODO: Consider adding for both HKLM and HKCU, to compare the values contained within them
+        $referers = $all_treatas_targets[$target]
+        # check if it exists
+        $HKCR_CLSID_exists = $False
+        $HKCR_obj = Get-Item -path Registry::HKCR\CLSID\$target -ErrorAction SilentlyContinue
+        if ($HKCR_obj){
+            $HKCR_CLSID_exists = $True
+        }
+        if (!($HKCR_CLSID_exists)) {
+            "$target does not exist and is referenced by $referers"
+            "Hijack this is you want to be ESPECIALLY sneaky`n"
+            continue
+        }
+        $target_subkeys = Get-ChildItem -Path "Registry::HKCR\CLSID\$target"
+        foreach ($subkey in $target_subkeys) {
+            if ($subkey.Name -like "*procserver*" -or $subkey.Name -like "*localserver*") {
+                # grab the binary associated with the subkey
+                $guid = ($subkey.Name).Split('\')[2]
+                $binary = (Get-ItemProperty $subkey.PSPath).'(default)'
+                if (!$binary) {
+                    continue
+                }
+                # check if the binary exists
+                $binary =  "$binary".replace('"','')
+                
+                foreach ($referer in $referers) {
+                    $referer
+                }
+                "all redirect to $binary ($guid)`n"
+            }
         }
     }
 }
