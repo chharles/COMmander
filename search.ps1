@@ -3,7 +3,6 @@
 #   List of lots of different techniques
 # good explanation of missing libraries use https://bohops.com/2018/08/18/abusing-the-com-registry-structure-part-2-loading-techniques-for-evasion-and-persistence/
 
-
 # looks for scheduled tasks that are hijackable
 function Get-Scheduled-Tasks-Missing-HKCU {
     $tasks = Get-ScheduledTask
@@ -305,7 +304,6 @@ function Create_Malicious_GUID($GUID, $binary) {
 
 #inspired by https://github.com/enigma0x3/Misc-PowerShell-Stuff/blob/master/Get-ScheduledTaskComHandler.ps1
 # added the capability to search for exes (localserver32) in addition to dlls
-# TODO: Compare HKLM and HKCU see if they are the same
 function Hijackable-Scheduled-Tasks {
 
     param (
@@ -403,10 +401,23 @@ function Hijackable-Scheduled-Tasks {
         } else {
             $Out
         }
+
+        # suspicious. implies that the HKLM value is being overwritten by HKCU
+        if ($InHKLM -and $InHKCU) {
+            "!!!!! WARNING !!!!!`n$COM is defined in HKLM AND HKCU"
+            if ($exe_obj) {
+                "HKLM binary: " + (Get-ItemProperty -LiteralPath Registry::HKLM\Software\Classes\CLSID\$COM\LocalServer32).'(default)' 
+                "HKCU binary: " + (Get-ItemProperty -LiteralPath Registry::HKCU\Software\Classes\CLSID\$COM\LocalServer32).'(default)' 
+            } else {
+                "HKLM binary: " + (Get-ItemProperty -LiteralPath Registry::HKLM\Software\Classes\CLSID\$COM\InProcServer32).'(default)' 
+                "HKCU binary: " + (Get-ItemProperty -LiteralPath Registry::HKCU\Software\Classes\CLSID\$COM\InProcServer32).'(default)' 
+            }
+            "`n"
+        }
     }
 }
 
-# consider add HKLM and HKCU
+# consider adding HKLM and HKCU
 function Get-All-TreatAs-Objects {
     $HKCR_CLSID_Subkeys = Get-RegistrySubkeys
     foreach ($key in $HKCR_CLSID_Subkeys) {
@@ -441,7 +452,7 @@ function Check-All-TreatAs-Objects {
             $HKCR_CLSID_exists = $True
         }
         if (!($HKCR_CLSID_exists)) {
-            "$target does not exist and is referenced by $referers"
+            "`n!!!!! WARNING !!!!!`n$target does not exist and is referenced by $referers"
             "Hijack this is you want to be ESPECIALLY sneaky`n"
             continue
         }
