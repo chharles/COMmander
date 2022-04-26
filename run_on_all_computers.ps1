@@ -7,6 +7,7 @@ if ($InDomain) {
 	$Computers = (Get-ADComputer -Filter 'OperatingSystem -like "*Windows*"' -Properties OperatingSystem)
 
 	foreach ($computer in $Computers) {
-		Invoke-Command -ComputerName $Computer.DNSHostName -FilePath $Path_to_Script 2>$null
+        $Outfile_path = $Computer.Name
+		Invoke-Command -ComputerName $Computer.DNSHostName -FilePath C:\Users\Administrator\Desktop\script.ps1 2>$null | Out-File -FilePath ".\$Outfile_path.txt"
 	}
 }

@@ -21,6 +21,8 @@ function Get-RegistrySubkeys {
 
 # added checks for rundll32.exes and recursive calls to check the writability of pathes given current user context
 function Missing-Libraries {
+
+    "========================================`nMissing Libraries`n========================================"
     $User = $env:USERNAME
     
     # grab all of the HKCR CLSIDs subkeys
@@ -468,6 +470,8 @@ function Hijackable-Scheduled-Tasks {
         $OrderHijack
     )
     
+    "========================================`nHijackackable Scheduled Tasks`n========================================"
+
     $path = "$env:windir\System32\Tasks"
     # requires administative privs
     # Get-ChildItem -Path $path -Recurse 
@@ -588,6 +592,8 @@ function Get-All-TreatAs-Objects {
 
 function Check-All-TreatAs-Objects {
     # search for COM objects with TreatAS key
+    "========================================`nCheck All TreatAs Objects`n========================================"
+
     $all_treatas_targets = @{}
     $All_TreatAs_Objects = Get-All-TreatAs-Objects
     foreach ($obj_name in $All_TreatAs_Objects) {
