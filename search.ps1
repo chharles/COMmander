@@ -264,7 +264,7 @@ function Modify-COM-Object-binary($GUID, $binary) {
     }
 }
 
-function Modify-COM-Object-remove-subkey ($GUID, [Switch] $InProcServer32, [Switch] $LocalServer32){
+function Modify-COM-Object-remove-subkey ($GUID, [Switch] $InProcServer32, [Switch] $LocalServer32, [Switch] $TreatAs){
 
     if (!($GUID)) {
         return "GUID must be provided"
@@ -285,28 +285,39 @@ function Modify-COM-Object-remove-subkey ($GUID, [Switch] $InProcServer32, [Swit
     }
 
     if ($InProcServer32) {
-        # create the inprocserver32 subkey
+        # check if the inprocserver32 subkey exists
         $HKCU_dll_obj = Get-Item -path Registry::HKCU\Software\Classes\CLSID\$GUID\InProcServer32 -ErrorAction SilentlyContinue
         if (!($HKCU_dll_obj)) {
             return "InProcServer32 does not exist for $GUID"
         }
+        #remove it
         Remove-Item "HKCU:\Software\Classes\CLSID\$GUID\InProcServer32" -Recurse | Out-Null
         return "HKCU:\Software\Classes\CLSID\$GUID\InProcServer32 removed"
     } 
     elseif ($LocalServer32) {
-        # create the inprocserver32 subkey
+        # check if the inprocserver32 subkey exists
         $HKCU_exe_obj = Get-Item -path Registry::HKCU\Software\Classes\CLSID\$GUID\LocalServer32 -ErrorAction SilentlyContinue
         if (!($HKCU_exe_obj)) {
             return "InProcServer32 does not exist for $GUID"
         }
         Remove-Item "HKCU:\Software\Classes\CLSID\$GUID\LocalServer32" -Recurse | Out-Null
         return "HKCU:\Software\Classes\CLSID\$GUID\LocalServer32 removed"
+    } elseif ($TreatAs) {
+        # check if the treatas subkey exists
+        $HKCU_treatas_obj = Get-Item -path Registry::HKCU\Software\Classes\CLSID\$GUID\TreatAs -ErrorAction SilentlyContinue
+        if (!($HKCU_treatas_obj)) {
+            return "InProcServer32 does not exist for $GUID"
+        }
+        Remove-Item "HKCU:\Software\Classes\CLSID\$GUID\TreatAs" -Recurse | Out-Null
+        return "HKCU:\Software\Classes\CLSID\$GUID\Treatas removed"
     } else {
         "Something went wrong"
     }
 }
 
 #function Modify-COM-Object-add-TreatAs ($GUID, $target_GUID)
+
+
 #function Hijack-COM-Object-by-TreatAs ($victim_GUID, $mal_GUID)
 
 function Find-All-Suspicious-COM-Objects {
