@@ -143,7 +143,7 @@ function Missing-Libraries {
     }
 }
 
-function Create-COM-Object ($GUID, $binary, $CLSID_name) {
+function Create-COM-Object($GUID, $binary, $CLSID_name) {
     if (!($GUID)) {
         return "GUID must be provided"
     }
@@ -202,6 +202,113 @@ function Create-COM-Object ($GUID, $binary, $CLSID_name) {
     }
 }
 
+function Modify-COM-Object-binary($GUID, $binary) {
+    if (!($GUID)) {
+        return "GUID must be provided"
+    }
+    if (!($binary)) {
+        return "binary must be provided"
+    }
+        
+    #check if the binary for the target of the GUID exists
+    if (!($GUID.contains("{"))) {
+        $GUID = "{" + $GUID
+    }
+    if (!($GUID.contains("}"))) {
+        $GUID = $GUID + "}"
+    }
+    if (!(Test-Path -Path "$binary")) {
+        return "`"$binary`" does not exist - check the path"
+    }
+
+    # check the extension of the binary
+    $dll = $False
+    $exe = $False
+    if ($binary.contains(".exe")) {
+        $exe = $True
+    } 
+    elseif ($binary.contains(".dll")) {
+        $dll = $True
+    }
+    else {
+        return "target binary must be either a dll or executable" 
+    }
+
+    # check for the existence of the HKLM COM Object
+    $HKCU_obj = Get-Item -path Registry::HKCU\Software\Classes\CLSID\$GUID -ErrorAction SilentlyContinue
+    if (!($HKCU_obj)) {
+        return "$GUID does not exist in HKLM"
+    }
+
+    if ($dll) {
+        # create the inprocserver32 subkey
+        $HKCU_dll_obj = Get-Item -path Registry::HKCU\Software\Classes\CLSID\$GUID\InProcServer32 -ErrorAction SilentlyContinue
+        if (!($HKCU_dll_obj)) {
+            New-Item -Path "HKCU:\Software\Classes\CLSID\$GUID" -Name "InProcServer32" | Out-Null
+        }
+        Set-ItemProperty -Path "HKCU:\Software\Classes\CLSID\$GUID\InProcServer32" -Name '(default)' -Value "$binary" | Out-Null
+        return "HKCU:\Software\Classes\CLSID\$GUID\InProcServer32 set to $binary"
+    } 
+    elseif ($exe) {
+        # create the inprocserver32 subkey
+        $HKCU_exe_obj = Get-Item -path Registry::HKCU\Software\Classes\CLSID\$GUID\LocalServer32 -ErrorAction SilentlyContinue
+        if (!($HKCU_exe_obj)) {
+            New-Item -Path "HKCU:\Software\Classes\CLSID\$GUID" -Name "LocalServer32" | Out-Null
+        }
+        Set-ItemProperty -Path "HKCU:\Software\Classes\CLSID\$GUID\LocalServer32" -Name '(default)' -Value "$binary" | Out-Null
+        return "HKCU:\Software\Classes\CLSID\$GUID\LocalServer32 set to $binary"
+    } else {
+        "Something went wrong"
+    }
+}
+
+function Modify-COM-Object-remove-subkey ($GUID, [Switch] $InProcServer32, [Switch] $LocalServer32){
+
+    if (!($GUID)) {
+        return "GUID must be provided"
+    }
+        
+    #check if the binary for the target of the GUID exists
+    if (!($GUID.contains("{"))) {
+        $GUID = "{" + $GUID
+    }
+    if (!($GUID.contains("}"))) {
+        $GUID = $GUID + "}"
+    }
+
+    # check for the existence of the HKLM COM Object
+    $HKCU_obj = Get-Item -path Registry::HKCU\Software\Classes\CLSID\$GUID -ErrorAction SilentlyContinue
+    if (!($HKCU_obj)) {
+        return "$GUID does not exist in HKLM"
+    }
+
+    if ($InProcServer32) {
+        # create the inprocserver32 subkey
+        $HKCU_dll_obj = Get-Item -path Registry::HKCU\Software\Classes\CLSID\$GUID\InProcServer32 -ErrorAction SilentlyContinue
+        if (!($HKCU_dll_obj)) {
+            return "InProcServer32 does not exist for $GUID"
+        }
+        Remove-Item "HKCU:\Software\Classes\CLSID\$GUID\InProcServer32" -Recurse | Out-Null
+        return "HKCU:\Software\Classes\CLSID\$GUID\InProcServer32 removed"
+    } 
+    elseif ($LocalServer32) {
+        # create the inprocserver32 subkey
+        $HKCU_exe_obj = Get-Item -path Registry::HKCU\Software\Classes\CLSID\$GUID\LocalServer32 -ErrorAction SilentlyContinue
+        if (!($HKCU_exe_obj)) {
+            return "InProcServer32 does not exist for $GUID"
+        }
+        Remove-Item "HKCU:\Software\Classes\CLSID\$GUID\LocalServer32" -Recurse | Out-Null
+        return "HKCU:\Software\Classes\CLSID\$GUID\LocalServer32 removed"
+    } else {
+        "Something went wrong"
+    }
+}
+
+#function Modify-COM-Object-add-TreatAs ($GUID, $target_GUID)
+#function Hijack-COM-Object-by-TreatAs ($victim_GUID, $mal_GUID)
+
+#function Find-All-Suspicious-COM-Objects ([switch] HKCR, [switch] HKLM, [switch] HKCU, [switch] ALL)
+
 function Remove-COM-Object($GUID) {
     #check if the binary for the target of the GUID exists
     if (!($GUID)) {
@@ -227,7 +334,6 @@ function Remove-COM-Object($GUID) {
 #inspired by https://github.com/enigma0x3/Misc-PowerShell-Stuff/blob/master/Get-ScheduledTaskComHandler.ps1
 # added the capability to search for exes (localserver32) in addition to dlls
 function Hijackable-Scheduled-Tasks {
-
     param (
         [Parameter(ParameterSetName = 'OnLogon')]
         [Switch]
@@ -240,7 +346,6 @@ function Hijackable-Scheduled-Tasks {
         $OrderHijack
     )
     
-
     $path = "$env:windir\System32\Tasks"
     # requires administative privs
     # Get-ChildItem -Path $path -Recurse 
