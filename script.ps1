@@ -634,3 +634,7 @@ function Check-All-TreatAs-Objects {
         }
     }
 }
+
+Hijackable-Scheduled-Tasks -PersistenceLocations
+Missing-Libraries
+Check-All-TreatAs-Objects
