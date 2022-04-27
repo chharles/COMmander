@@ -743,3 +743,33 @@ function Missing-COM-Objects($CSV) {
         $proc_to_GUID[$entry] | Sort-Object -Unique
     }
 }
+
+
+function capture-csv($procmon_path, $config_path, $backingfile_path, $csvfile_path, $time_to_run) { 
+
+    if (!(Test-Path -Path "$procmon_path")) {
+        return "`"$procmon_path`" does not exist - check the path"
+    }
+    if (!(Test-Path -Path "$config_path")) {
+        return "`"$procmon_path`" does not exist - check the path"
+    }
+    $backingfile_ext = ($backingfile_path.Name).Split('.')[-1]
+    if (!($backingfile_ext -like "*pml*")) {
+        return "`"$backingfile_path`" must end with '.pml'"
+    }
+    $csvfile_ext = ($csvfile_path.Name).Split('.')[-1]
+    if (!($csvfile_ext -like "*csv*")) {
+        return "`"$csvfile_path`" must end with '.csv'"
+    }
+	# start procmon via powershell
+	start-process -filepath "$procmon_path" -argumentlist "/accepteula /quiet /minimized /LoadConfig $config_path /backingfile $backingfile_path" -Passthru
+	
+	if (!($time_to_run)) {
+		$time_to_run = 6
+	}
+	Start-Sleep -Seconds $time_to_run
+	#end procmon via powershell
+	start-process -filepath "$procmon_path" -argumentlist "/terminate" -wait
+	#convert pmc file into csv
+	start-process -filepath "$procmon_path" -argumentlist "/OpenLog $backingfile_path /SaveAs1 $csvfile_path"
+}
