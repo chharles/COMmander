@@ -527,18 +527,7 @@ function Remove-COM-Object($GUID) {
 
 #inspired by https://github.com/enigma0x3/Misc-PowerShell-Stuff/blob/master/Get-ScheduledTaskComHandler.ps1
 # added the capability to search for exes (localserver32) in addition to dlls
-function Hijackable-Scheduled-Tasks {
-    param (
-        [Parameter(ParameterSetName = 'OnLogon')]
-        [Switch]
-        $OnLogon,
-        [Parameter(ParameterSetName = 'PersistenceLocations')]
-        [Switch]
-        $PersistenceLocations,
-        [Parameter(ParameterSetName = 'OrderHijack')]
-        [Switch]
-        $OrderHijack
-    )
+function Hijackable-Scheduled-Tasks ([Switch] $OnLogon, [Switch] $PersistenceLocations, [Switch] $OrderHijack) {
     
     "========================================`nHijackackable Scheduled Tasks`n========================================"
 
