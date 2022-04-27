@@ -376,7 +376,6 @@ function Modify-COM-Object-add-TreatAs($GUID, $target_GUID) {
     }
 }
 
-
 function Find-All-Suspicious-COM-Objects {
     $Paths = [System.Collections.ArrayList]@() 
     $Paths.Add("Registry::HKCR\CLSID") | Out-Null
