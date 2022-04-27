@@ -21,6 +21,8 @@ function Get-RegistrySubkeys {
 
 # added checks for rundll32.exes and recursive calls to check the writability of pathes given current user context
 function Missing-Libraries {
+
+    "========================================`nMissing Libraries`n========================================"
     $User = $env:USERNAME
     
     # grab all of the HKCR CLSIDs subkeys
@@ -176,7 +178,7 @@ function Create-COM-Object($GUID, $binary, $CLSID_name) {
     }
 
     # check for the existence of the HKLM COM Object
-    $HKCU_obj = Get-Item -path Registry::HKCU\Software\Classes\CLSID\$GUID -ErrorAction SilentlyContinue
+    $HKCU_obj = Get-Item -path "Registry::HKCU\Software\Classes\CLSID\$GUID" -ErrorAction SilentlyContinue
     if ($HKCU_obj) {
         return "$GUID already exists in HKLM. Try a different GUID"
     }
@@ -235,34 +237,50 @@ function Modify-COM-Object-binary($GUID, $binary) {
     }
 
     # check for the existence of the HKLM COM Object
-    $HKCU_obj = Get-Item -path Registry::HKCU\Software\Classes\CLSID\$GUID -ErrorAction SilentlyContinue
+    $HKCU_obj = Get-Item -path "Registry::HKCU\Software\Classes\CLSID\$GUID" -ErrorAction SilentlyContinue
     if (!($HKCU_obj)) {
         return "$GUID does not exist in HKLM"
     }
 
     if ($dll) {
         # create the inprocserver32 subkey
-        $HKCU_dll_obj = Get-Item -path Registry::HKCU\Software\Classes\CLSID\$GUID\InProcServer32 -ErrorAction SilentlyContinue
+        $HKCU_dll_obj = Get-Item -path "Registry::HKCU\Software\Classes\CLSID\$GUID\InProcServer32" -ErrorAction SilentlyContinue
+        # if the InProcServer32 subkey does not exist, make it
+        $old_dll_val = $False
         if (!($HKCU_dll_obj)) {
             New-Item -Path "HKCU:\Software\Classes\CLSID\$GUID" -Name "InProcServer32" | Out-Null
+        } else {
+            $old_dll_val = (Get-ItemProperty -LiteralPath "Registry::HKCR\CLSID\$GUID\InProcServer32").'(default)'
         }
         Set-ItemProperty -Path "HKCU:\Software\Classes\CLSID\$GUID\InProcServer32" -Name '(default)' -Value "$binary" | Out-Null
-        return "HKCU:\Software\Classes\CLSID\$GUID\InProcServer32 set to $binary"
+        if ($old_dll_val) {
+            return "HKCU:\Software\Classes\CLSID\$GUID\InprocServer32 was present. InProcServer32 was changed from $old_dll_val to $binary"
+        } else {
+            return "HKCU:\Software\Classes\CLSID\$GUID\InProcServer32 was created. InProcServer32 was set to $binary"
+        }
     } 
     elseif ($exe) {
         # create the inprocserver32 subkey
-        $HKCU_exe_obj = Get-Item -path Registry::HKCU\Software\Classes\CLSID\$GUID\LocalServer32 -ErrorAction SilentlyContinue
+        $HKCU_exe_obj = Get-Item -path "Registry::HKCU\Software\Classes\CLSID\$GUID\LocalServer32" -ErrorAction SilentlyContinue
+        # if the InProcServer32 subkey does not exist, make it
+        $old_exe_val = $False
         if (!($HKCU_exe_obj)) {
             New-Item -Path "HKCU:\Software\Classes\CLSID\$GUID" -Name "LocalServer32" | Out-Null
+        } else {
+            $old_exe_val = (Get-ItemProperty -LiteralPath "Registry::HKCR\CLSID\$GUID\LocalServer32").'(default)'
         }
         Set-ItemProperty -Path "HKCU:\Software\Classes\CLSID\$GUID\LocalServer32" -Name '(default)' -Value "$binary" | Out-Null
-        return "HKCU:\Software\Classes\CLSID\$GUID\LocalServer32 set to $binary"
+        if ($old_exe_val) {
+            return "HKCU:\Software\Classes\CLSID\$GUID\LocalServer32 was present. LocalServer32 was changed from $old_exe_val to $binary"
+        } else {
+            return "HKCU:\Software\Classes\CLSID\$GUID\LocalServer32 was created. LocalServer32 was set to $binary"
+        }
     } else {
         "Something went wrong"
     }
 }
 
-function Modify-COM-Object-remove-subkey ($GUID, [Switch] $InProcServer32, [Switch] $LocalServer32){
+function Modify-COM-Object-remove-subkey($GUID, [Switch] $InProcServer32, [Switch] $LocalServer32, [Switch] $TreatAs) {
 
     if (!($GUID)) {
         return "GUID must be provided"
@@ -277,35 +295,86 @@ function Modify-COM-Object-remove-subkey ($GUID, [Switch] $InProcServer32, [Swit
     }
 
     # check for the existence of the HKLM COM Object
-    $HKCU_obj = Get-Item -path Registry::HKCU\Software\Classes\CLSID\$GUID -ErrorAction SilentlyContinue
+    $HKCU_obj = Get-Item -path "Registry::HKCU\Software\Classes\CLSID\$GUID" -ErrorAction SilentlyContinue
     if (!($HKCU_obj)) {
         return "$GUID does not exist in HKLM"
     }
 
     if ($InProcServer32) {
-        # create the inprocserver32 subkey
-        $HKCU_dll_obj = Get-Item -path Registry::HKCU\Software\Classes\CLSID\$GUID\InProcServer32 -ErrorAction SilentlyContinue
+        # check if the inprocserver32 subkey exists
+        $HKCU_dll_obj = Get-Item -path "Registry::HKCU\Software\Classes\CLSID\$GUID\InProcServer32" -ErrorAction SilentlyContinue
         if (!($HKCU_dll_obj)) {
             return "InProcServer32 does not exist for $GUID"
         }
+        #remove it
         Remove-Item "HKCU:\Software\Classes\CLSID\$GUID\InProcServer32" -Recurse | Out-Null
         return "HKCU:\Software\Classes\CLSID\$GUID\InProcServer32 removed"
     } 
     elseif ($LocalServer32) {
-        # create the inprocserver32 subkey
-        $HKCU_exe_obj = Get-Item -path Registry::HKCU\Software\Classes\CLSID\$GUID\LocalServer32 -ErrorAction SilentlyContinue
+        # check if the inprocserver32 subkey exists
+        $HKCU_exe_obj = Get-Item -path "Registry::HKCU\Software\Classes\CLSID\$GUID\LocalServer32" -ErrorAction SilentlyContinue
         if (!($HKCU_exe_obj)) {
             return "InProcServer32 does not exist for $GUID"
         }
         Remove-Item "HKCU:\Software\Classes\CLSID\$GUID\LocalServer32" -Recurse | Out-Null
         return "HKCU:\Software\Classes\CLSID\$GUID\LocalServer32 removed"
+    } elseif ($TreatAs) {
+        # check if the treatas subkey exists
+        $HKCU_treatas_obj = Get-Item -path "Registry::HKCU\Software\Classes\CLSID\$GUID\TreatAs" -ErrorAction SilentlyContinue
+        if (!($HKCU_treatas_obj)) {
+            return "InProcServer32 does not exist for $GUID"
+        }
+        Remove-Item "HKCU:\Software\Classes\CLSID\$GUID\TreatAs" -Recurse | Out-Null
+        return "HKCU:\Software\Classes\CLSID\$GUID\Treatas removed"
     } else {
         "Something went wrong"
     }
 }
 
-#function Modify-COM-Object-add-TreatAs ($GUID, $target_GUID)
-#function Hijack-COM-Object-by-TreatAs ($victim_GUID, $mal_GUID)
+function Modify-COM-Object-add-TreatAs($GUID, $target_GUID) {
+    if (!($GUID)) {
+        return "GUID must be provided"
+    }
+    if (!($target_GUID)) {
+        return "treatas GUID must be provided"
+    }
+        
+    if (!($GUID.contains("{"))) {
+        $GUID = "{" + $GUID
+    }
+    if (!($GUID.contains("}"))) {
+        $GUID = $GUID + "}"
+    }
+
+    if (!($target_GUID.contains("{"))) {
+        $target_GUID = "{" + $target_GUID
+    }
+    if (!($target_GUID.contains("}"))) {
+        $target_GUID = $target_GUID + "}"
+    }
+
+    # check for the existence of the HKLM COM Object
+    $HKCU_obj = Get-Item -path "Registry::HKCU\Software\Classes\CLSID\$GUID" -ErrorAction SilentlyContinue
+    if (!($HKCU_obj)) {
+        return "$GUID does not exist in HKCU"
+    }
+
+    # check for the existence of the TreatAs subkey
+    $HKCU_treatas_obj = Get-Item -path "Registry::HKCU\Software\Classes\CLSID\$GUID\TreatAs" -ErrorAction SilentlyContinue
+    # if the TreatAs subkey does not exist, make it
+    $old_TreatAs_val = $False
+    if (!($HKCU_treatas_obj)) {
+        New-Item -Path "HKCU:\Software\Classes\CLSID\$GUID" -Name "TreatAs" | Out-Null
+    } else {
+        $old_TreatAs_val = (Get-ItemProperty -LiteralPath "Registry::HKCR\CLSID\$GUID\TreatAs").'(default)'
+    }
+    Set-ItemProperty -Path "HKCU:\Software\Classes\CLSID\$GUID\TreatAs" -Name '(default)' -Value "$target_GUID" | Out-Null
+    if ($old_TreatAs_val) {
+        return "HKCU:\Software\Classes\CLSID\$GUID\TreatAs was present. TreatAs was changed from $old_TreatAs_val to $target_GUID"
+    } else {
+        return "HKCU:\Software\Classes\CLSID\$GUID\TreatAs was created. TreatAs was set to $target_GUID"
+    }
+}
 
 function Find-All-Suspicious-COM-Objects {
     $Paths = [System.Collections.ArrayList]@() 
@@ -405,7 +474,7 @@ function Find-All-Suspicious-COM-Objects {
 
         # suspicious. implies that the HKLM value is being overwritten by HKCU
         if ($Out.InHKLM -and $Out.InHKCU) {
-            "!!!!! WARNING !!!!!`n$guid is defined in HKLM AND HKCU"
+            "`n!!!!! WARNING !!!!!`n$guid is defined in HKLM AND HKCU"
             "HKLM CLSID Name: " + $Out.HKLM_CLSID_Name
             "HKCU CLSID Name: " + $Out.HKCU_CLSID_Name
             if ($Out.has_exe) {
@@ -415,17 +484,19 @@ function Find-All-Suspicious-COM-Objects {
                 "HKLM binary: " + $Out.HKLM_dll
                 "HKCU binary: " + $Out.HKCU_dll
             }
+            "`n"
         }
 
         # Could be an indication of user persistence  
         if ($Out.InHKCU -and !($Out.InHKLM)) {
-            "!!!!! WARNING !!!!!`n$guid is defined in HKCU AND NOT HKLM"
+            "`n!!!!! WARNING !!!!!`n$guid is defined in HKCU AND NOT HKLM"
             "HKCU CLSID Name: " + $Out.HKCU_CLSID_Name
             if ($Out.has_exe) {
                 "HKCU binary: " + $Out.HKCU_exe
             } elseif ($Out.has_dll) {
                 "HKCU binary: "+ $Out.HKCU_dll
             }
+            "`n"
         }
 
     }
@@ -468,6 +539,8 @@ function Hijackable-Scheduled-Tasks {
         $OrderHijack
     )
     
+    "========================================`nHijackackable Scheduled Tasks`n========================================"
+
     $path = "$env:windir\System32\Tasks"
     # requires administative privs
     # Get-ChildItem -Path $path -Recurse 
@@ -483,34 +556,34 @@ function Hijackable-Scheduled-Tasks {
             
             $dll = ""
             $exe = ""
-            $dll_obj = Get-Item -LiteralPath Registry::HKCR\CLSID\$COM\InProcServer32 -ErrorAction SilentlyContinue
-            $exe_obj = Get-Item -LiteralPath Registry::HKCR\CLSID\$COM\LocalServer32 -ErrorAction SilentlyContinue
+            $dll_obj = Get-Item -LiteralPath "Registry::HKCR\CLSID\$COM\InProcServer32" -ErrorAction SilentlyContinue
+            $exe_obj = Get-Item -LiteralPath "Registry::HKCR\CLSID\$COM\LocalServer32" -ErrorAction SilentlyContinue
 
             if ($dll_obj){
-                $dll = (Get-ItemProperty -LiteralPath Registry::HKCR\CLSID\$COM\InProcServer32).'(default)'
+                $dll = (Get-ItemProperty -LiteralPath "Registry::HKCR\CLSID\$COM\InProcServer32").'(default)'
             }
             if ($exe_obj) {
-                $exe = (Get-ItemProperty -LiteralPath Registry::HKCR\CLSID\$COM\LocalServer32).'(default)' # this was not included
+                $exe = (Get-ItemProperty -LiteralPath "Registry::HKCR\CLSID\$COM\LocalServer32").'(default)' # this was not included
             }
 
             $InHKLM = $False
             $InHKCU = $False
             if ($dll_obj) {
-                $HKLM_dll_obj = Get-Item -path Registry::HKLM\Software\Classes\CLSID\$COM\InProcServer32 -ErrorAction SilentlyContinue
+                $HKLM_dll_obj = Get-Item -path "Registry::HKLM\Software\Classes\CLSID\$COM\InProcServer32" -ErrorAction SilentlyContinue
                 if ($HKLM_dll_obj){
                     $InHKLM = $True
                 }
-                $HKCU_dll_obj = Get-Item -path Registry::HKCU\Software\Classes\CLSID\$COM\InProcServer32 -ErrorAction SilentlyContinue
+                $HKCU_dll_obj = Get-Item -path "Registry::HKCU\Software\Classes\CLSID\$COM\InProcServer32" -ErrorAction SilentlyContinue
                 if ($HKCU_dll_obj) {
                     $InHKCU = $True
                 }
             }
             if ($exe_obj) {
-                $HKLM_exe_obj = Get-Item -path Registry::HKLM\Software\Classes\CLSID\$COM\LocalServer32 -ErrorAction SilentlyContinue
+                $HKLM_exe_obj = Get-Item -path "Registry::HKLM\Software\Classes\CLSID\$COM\LocalServer32" -ErrorAction SilentlyContinue
                 if ($HKLM_exe_obj) {
                     $InHKLM = $True
                 }
-                $HKCU_exe_obj = Get-Item -path Registry::HKCU\Software\Classes\CLSID\$COM\LocalServer32 -ErrorAction SilentlyContinue
+                $HKCU_exe_obj = Get-Item -path "Registry::HKCU\Software\Classes\CLSID\$COM\LocalServer32" -ErrorAction SilentlyContinue
                 if ($HKCU_exe_obj) {
                     $InHKCU = $True
                 }
@@ -553,24 +626,26 @@ function Hijackable-Scheduled-Tasks {
 
         # suspicious. implies that the HKLM value is being overwritten by HKCU
         if ($InHKLM -and $InHKCU) {
-            "!!!!! WARNING !!!!!`n$COM is defined in HKLM AND HKCU"
+            "`n!!!!! WARNING !!!!!`n$COM is defined in HKLM AND HKCU"
             if ($exe_obj) {
-                "HKLM binary: " + (Get-ItemProperty -LiteralPath Registry::HKLM\Software\Classes\CLSID\$COM\LocalServer32).'(default)' 
-                "HKCU binary: " + (Get-ItemProperty -LiteralPath Registry::HKCU\Software\Classes\CLSID\$COM\LocalServer32).'(default)' 
+                "HKLM binary: " + (Get-ItemProperty -LiteralPath "Registry::HKLM\Software\Classes\CLSID\$COM\LocalServer32").'(default)' 
+                "HKCU binary: " + (Get-ItemProperty -LiteralPath "Registry::HKCU\Software\Classes\CLSID\$COM\LocalServer32").'(default)' 
             } else {
-                "HKLM binary: " + (Get-ItemProperty -LiteralPath Registry::HKLM\Software\Classes\CLSID\$COM\InProcServer32).'(default)' 
-                "HKCU binary: " + (Get-ItemProperty -LiteralPath Registry::HKCU\Software\Classes\CLSID\$COM\InProcServer32).'(default)' 
+                "HKLM binary: " + (Get-ItemProperty -LiteralPath "Registry::HKLM\Software\Classes\CLSID\$COM\InProcServer32").'(default)' 
+                "HKCU binary: " + (Get-ItemProperty -LiteralPath "Registry::HKCU\Software\Classes\CLSID\$COM\InProcServer32").'(default)' 
             }
+            "`n"
         }
 
         # Could be an indication of user persistence  
         if ($InHKCU -and !($InHKLM)) {
-            "!!!!! WARNING !!!!!`n$COM is defined in HKCU AND NOT HKLM"
+            "`n!!!!! WARNING !!!!!`n$COM is defined in HKCU AND NOT HKLM"
             if ($exe_obj) {
-                "HKCU binary: " + (Get-ItemProperty -LiteralPath Registry::HKCU\Software\Classes\CLSID\$COM\LocalServer32).'(default)' 
+                "HKCU binary: " + (Get-ItemProperty -LiteralPath "Registry::HKCU\Software\Classes\CLSID\$COM\LocalServer32").'(default)' 
             } else {
-                "HKCU binary: " + (Get-ItemProperty -LiteralPath Registry::HKCU\Software\Classes\CLSID\$COM\InProcServer32).'(default)' 
+                "HKCU binary: " + (Get-ItemProperty -LiteralPath "Registry::HKCU\Software\Classes\CLSID\$COM\InProcServer32").'(default)' 
             }
+            "`n"
         }
     }
 }
@@ -588,6 +663,8 @@ function Get-All-TreatAs-Objects {
 
 function Check-All-TreatAs-Objects {
     # search for COM objects with TreatAS key
+    "========================================`nCheck All TreatAs Objects`n========================================"
+
     $all_treatas_targets = @{}
     $All_TreatAs_Objects = Get-All-TreatAs-Objects
     foreach ($obj_name in $All_TreatAs_Objects) {
