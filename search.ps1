@@ -35,7 +35,8 @@ function Missing-Libraries {
                 $guid = ($subkey.Name).Split('\')[2]
                 # grab the binary associated with the subkey
                 $binary = (Get-ItemProperty $subkey.PSPath).'(default)'
-                # if the binary string is empty, move on to the next subkey
+                # if the binary string is empty, move on to the next subkey...
+                # TODO: This should be looked into
                 if (!$binary) {
                     continue
                 }
@@ -709,5 +710,36 @@ function Check-All-TreatAs-Objects {
                 "all redirect to $binary ($guid)`n"
             }
         }
+    }
+}
+
+
+#Heavily referenced: https://github.com/nccgroup/acCOMplice/blob/master/COMHijackToolkit/COMHijackToolkit.ps1
+function Missing-COM-Objects($CSV) {
+    if (!($CSV)) {
+        return "CSV file exported from procmon must be provided"
+    }
+    if (!(Test-Path -Path "$CSV")) {
+        return "`"$CSV`" does not exist - check the path"
+    }
+
+    "========================================`nMissing COM Objects`n========================================"
+
+    $Entries = Get-Content $CSV | ConvertFrom-Csv
+    $proc_to_GUID = @{}
+    foreach ($entry in $Entries) {
+        $proc_name = $entry.'Process Name'
+        $missing_path = $entry.'Path'
+        $guid = $missing_path.Split('\')[-2]
+        if ($proc_to_GUID.contains($proc_name)){
+            ($proc_to_GUID[$proc_name]).Add($guid) | Out-Null
+        } else {
+            $proc_to_GUID[$proc_name] = [System.Collections.ArrayList]@() 
+            ($proc_to_GUID[$proc_name]).Add($guid) | Out-Null
+        }
+    }
+    foreach ($entry in $proc_to_GUID.Keys) {
+        "`n$entry tries to use"
+        $proc_to_GUID[$entry] | Sort-Object -Unique
     }
 }
