@@ -245,20 +245,36 @@ function Modify-COM-Object-binary($GUID, $binary) {
     if ($dll) {
         # create the inprocserver32 subkey
         $HKCU_dll_obj = Get-Item -path "Registry::HKCU\Software\Classes\CLSID\$GUID\InProcServer32" -ErrorAction SilentlyContinue
+        # if the InProcServer32 subkey does not exist, make it
+        $old_dll_val = $False
         if (!($HKCU_dll_obj)) {
             New-Item -Path "HKCU:\Software\Classes\CLSID\$GUID" -Name "InProcServer32" | Out-Null
+        } else {
+            $old_dll_val = (Get-ItemProperty -LiteralPath "Registry::HKCR\CLSID\$GUID\InProcServer32").'(default)'
         }
         Set-ItemProperty -Path "HKCU:\Software\Classes\CLSID\$GUID\InProcServer32" -Name '(default)' -Value "$binary" | Out-Null
-        return "HKCU:\Software\Classes\CLSID\$GUID\InProcServer32 set to $binary"
+        if ($old_dll_val) {
+            return "HKCU:\Software\Classes\CLSID\$GUID\InprocServer32 was present. InProcServer32 was changed from $old_dll_val to $binary"
+        } else {
+            return "HKCU:\Software\Classes\CLSID\$GUID\InProcServer32 was created. InProcServer32 was set to $binary"
+        }
     } 
     elseif ($exe) {
         # create the inprocserver32 subkey
         $HKCU_exe_obj = Get-Item -path "Registry::HKCU\Software\Classes\CLSID\$GUID\LocalServer32" -ErrorAction SilentlyContinue
+        # if the InProcServer32 subkey does not exist, make it
+        $old_exe_val = $False
         if (!($HKCU_exe_obj)) {
             New-Item -Path "HKCU:\Software\Classes\CLSID\$GUID" -Name "LocalServer32" | Out-Null
+        } else {
+            $old_exe_val = (Get-ItemProperty -LiteralPath "Registry::HKCR\CLSID\$GUID\LocalServer32").'(default)'
         }
         Set-ItemProperty -Path "HKCU:\Software\Classes\CLSID\$GUID\LocalServer32" -Name '(default)' -Value "$binary" | Out-Null
-        return "HKCU:\Software\Classes\CLSID\$GUID\LocalServer32 set to $binary"
+        if ($old_exe_val) {
+            return "HKCU:\Software\Classes\CLSID\$GUID\LocalServer32 was present. LocalServer32 was changed from $old_exe_val to $binary"
+        } else {
+            return "HKCU:\Software\Classes\CLSID\$GUID\LocalServer32 was created. LocalServer32 was set to $binary"
+        }
     } else {
         "Something went wrong"
     }
@@ -360,7 +376,6 @@ function Modify-COM-Object-add-TreatAs($GUID, $target_GUID) {
     }
 }
 
-#function Hijack-COM-Object-by-TreatAs ($victim_GUID, $mal_GUID)
 
 function Find-All-Suspicious-COM-Objects {
     $Paths = [System.Collections.ArrayList]@() 
