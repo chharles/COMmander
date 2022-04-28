@@ -76,8 +76,11 @@ function Missing-Libraries {
                             if ($sta_guid_subkey.Name -like "*procserver*" -or $sta_guid_subkey.Name -like "*localserver*") {
                                 $binary = (Get-ItemProperty $sta_guid_subkey.PSPath).'(default)'
                                 $Out.GUID = $rundll32_sta_guid
-                                $Out.Missing_Library = $binary
+                                $Out | Add-Member NoteProperty 'Suspicious Binary' $binary
+                                $Out.Missing_Library = $false
                                 $Out.Warning = "rundll32.exe is loading a COM object directly. SUSPICIOUS"
+                                $Out
+                                continue
                             }
                         }
                     }
@@ -98,8 +101,10 @@ function Missing-Libraries {
                                 $directed_binary = (Get-ItemProperty $explorer_guid_subkey.PSPath).'(default)'
                                 if ($directed_binary -ne $binary) {
                                     $Out.GUID = $explorer_guid
-                                    $Out.Missing_Library = $directed_binary
+                                    $Out | Add-Member NoteProperty 'Suspicious Binary' $directed_binary
                                     $Out.Warning = "Explorer is spawning a different COM object on crashing. https://twitter.com/sbousseaden/status/1365038669447524358?lang=en"
+                                    $Out
+                                    continue
                                 } else {
                                     # What about COM proxying, I wonder?.. TODO
                                     $binary = "explorer.exe"
