@@ -1,10 +1,9 @@
-# references:
+# references and credits:
 # https://pentestlab.blog/2020/05/20/persistence-com-hijacking/
 #   List of lots of different techniques
 # good explanation of missing libraries use https://bohops.com/2018/08/18/abusing-the-com-registry-structure-part-2-loading-techniques-for-evasion-and-persistence/
+# https://github.com/nccgroup/acCOMplice/blob/master/COMHijackToolkit/COMHijackToolkit.ps1
 
-# Source : https://github.com/nccgroup/acCOMplice/blob/master/COMHijackToolkit/COMHijackToolkit.ps1
-# TODO: build this out to deal with HKLM and HKCU as well
 function Get-RegistrySubkeys {
     $HKCR_CLSID = "Registry::HKCR\CLSID"
     # grabs all of the HKCR CLSIDs
@@ -35,7 +34,8 @@ function Missing-Libraries {
                 $guid = ($subkey.Name).Split('\')[2]
                 # grab the binary associated with the subkey
                 $binary = (Get-ItemProperty $subkey.PSPath).'(default)'
-                # if the binary string is empty, move on to the next subkey
+                # if the binary string is empty, move on to the next subkey...
+                # TODO: This should be looked into
                 if (!$binary) {
                     continue
                 }
@@ -147,24 +147,22 @@ function Missing-Libraries {
 
 function Create-COM-Object($GUID, $binary, $CLSID_name) {
     if (!($GUID)) {
-        return "GUID must be provided"
+        return "`nERROR: GUID must be provided`n"
     }
     if (!($binary)) {
-        return "binary must be provided"
+        return "`nERROR: binary must be provided`n"
     }
-        
-    #check if the binary for the target of the GUID exists
+    if (!(Test-Path -Path "$binary")) {
+        return "`nERROR: `"$binary`" does not exist - check the path`n"
+    }
+
     if (!($GUID.contains("{"))) {
         $GUID = "{" + $GUID
     }
     if (!($GUID.contains("}"))) {
         $GUID = $GUID + "}"
     }
-    if (!(Test-Path -Path "$binary")) {
-        return "`"$binary`" does not exist - check the path"
-    }
 
-    # check the extension of the binary
     $dll = $False
     $exe = $False
     if ($binary.contains(".exe")) {
@@ -174,33 +172,40 @@ function Create-COM-Object($GUID, $binary, $CLSID_name) {
         $dll = $True
     }
     else {
-        return "target binary must be either a dll or executable" 
+        return "`nERROR: target binary must be either a dll or executable`n" 
     }
 
     # check for the existence of the HKLM COM Object
+    "Checking for the existence of Registry::HKCU\Software\Classes\CLSID\$GUID"
     $HKCU_obj = Get-Item -path "Registry::HKCU\Software\Classes\CLSID\$GUID" -ErrorAction SilentlyContinue
     if ($HKCU_obj) {
-        return "$GUID already exists in HKLM. Try a different GUID"
+        return "`nERROR: $GUID already exists in HKLM. Try a different GUID`n"
     }
 
     #Create a new COM Object
+    "Creating Registry::HKCU\Software\Classes\CLSID\$GUID"
     New-Item -Path "HKCU:\Software\Classes\CLSID" -Name "$GUID" | Out-Null
     if ($CLSID_name) {
+        "Setting CLSID 'default' value of Registry::HKCU\Software\Classes\CLSID\$GUID to $CLSID_name"
         Set-ItemProperty -Path "HKCU:\Software\Classes\CLSID\$GUID" -Name '(default)' -Value "$CLSID_name" | Out-Null
     }
     if ($dll) {
         # create the inprocserver32 subkey
+        "Creating HKCU:\Software\Classes\CLSID\$GUID\InProcServer32"
         New-Item -Path "HKCU:\Software\Classes\CLSID\$GUID" -Name "InProcServer32" | Out-Null
+        "Setting CLSID 'default' value of HKCU:\Software\Classes\CLSID\$GUID\InProcServer32 to $binary"
         Set-ItemProperty -Path "HKCU:\Software\Classes\CLSID\$GUID\InProcServer32" -Name '(default)' -Value "$binary" | Out-Null
         return "HKCU:\Software\Classes\CLSID\$GUID\InProcServer32 set to $binary"
     } 
     elseif ($exe) {
         # create the inprocserver32 subkey
+        "Creating HKCU:\Software\Classes\CLSID\$GUID\LocalServer32"
         New-Item -Path "HKCU:\Software\Classes\CLSID\$GUID" -Name "LocalServer32" | Out-Null
+        "Setting CLSID 'default' value of HKCU:\Software\Classes\CLSID\$GUID\LocalServer32 to $binary"
         Set-ItemProperty -Path "HKCU:\Software\Classes\CLSID\$GUID\LocalServer32" -Name '(default)' -Value "$binary" | Out-Null
         return "HKCU:\Software\Classes\CLSID\$GUID\LocalServer32 set to $binary"
     } else {
-        "Something went wrong"
+        return "`nERROR: Something went wrong`n"
     }
 }
 
@@ -526,18 +531,7 @@ function Remove-COM-Object($GUID) {
 
 #inspired by https://github.com/enigma0x3/Misc-PowerShell-Stuff/blob/master/Get-ScheduledTaskComHandler.ps1
 # added the capability to search for exes (localserver32) in addition to dlls
-function Hijackable-Scheduled-Tasks {
-    param (
-        [Parameter(ParameterSetName = 'OnLogon')]
-        [Switch]
-        $OnLogon,
-        [Parameter(ParameterSetName = 'PersistenceLocations')]
-        [Switch]
-        $PersistenceLocations,
-        [Parameter(ParameterSetName = 'OrderHijack')]
-        [Switch]
-        $OrderHijack
-    )
+function Hijackable-Scheduled-Tasks ([Switch] $OnLogon, [Switch] $PersistenceLocations, [Switch] $OrderHijack) {
     
     "========================================`nHijackackable Scheduled Tasks`n========================================"
 
@@ -710,6 +704,70 @@ function Check-All-TreatAs-Objects {
             }
         }
     }
+}
+
+
+#Heavily referenced: https://github.com/nccgroup/acCOMplice/blob/master/COMHijackToolkit/COMHijackToolkit.ps1
+function Missing-COM-Objects($CSV) {
+    if (!($CSV)) {
+        return "CSV file exported from procmon must be provided"
+    }
+    if (!(Test-Path -Path "$CSV")) {
+        return "`"$CSV`" does not exist - check the path"
+    }
+
+    "========================================`nMissing COM Objects`n========================================"
+
+    $Entries = Get-Content $CSV | ConvertFrom-Csv
+    $proc_to_GUID = @{}
+    foreach ($entry in $Entries) {
+        $proc_name = $entry.'Process Name'
+        $missing_path = $entry.'Path'
+        $guid = $missing_path.Split('\')[-2]
+        if ($proc_to_GUID.contains($proc_name)){
+            ($proc_to_GUID[$proc_name]).Add($guid) | Out-Null
+        } else {
+            $proc_to_GUID[$proc_name] = [System.Collections.ArrayList]@() 
+            ($proc_to_GUID[$proc_name]).Add($guid) | Out-Null
+        }
+    }
+    foreach ($entry in $proc_to_GUID.Keys) {
+        "`n$entry tries to use"
+        $proc_to_GUID[$entry] | Sort-Object -Unique
+    }
+}
+
+
+function capture-csv($procmon_path, $backingfile_path, $csvfile_path, $time_to_run) { 
+
+    if (!(Test-Path -Path "$procmon_path")) {
+        return "`"$procmon_path`" does not exist - check the path"
+    }
+    $backingfile_ext = ($backingfile_path).Split('.')[-1]
+    if (!($backingfile_ext -like "*pml*")) {
+        return "`"$backingfile_path`" must end with '.pml'"
+    }
+    $csvfile_ext = ($csvfile_path).Split('.')[-1]
+    if (!($csvfile_ext -like "*csv*")) {
+        return "`"$csvfile_path`" must end with '.csv'"
+    }
+	# start procmon via powershell
+	start-process -filepath "$procmon_path" -argumentlist "/accepteula /quiet /minimized /backingfile $backingfile_path" -Passthru | out-null
+	
+	if (!($time_to_run)) {
+		$time_to_run = 6
+	}
+	Start-Sleep -Seconds $time_to_run
+	#end procmon via powershell
+	start-process -filepath "$procmon_path" -argumentlist "/terminate" -wait
+    Start-Sleep -Seconds 1
+	#convert pmc file into csv
+	start-process -filepath "$procmon_path" -argumentlist "/SaveApplyFilter /OpenLog $backingfile_path /SaveAs1 $csvfile_path"
+}
+
+function check-for-missing-com-objects ($procmon_path, $backingfile_path, $csvfile_path, $time_to_run) {
+    capture-csv $procmon_path $backingfile_path $csvfile_path $time_to_run
+    Missing-COM-Objects($csvfile_path)
 }
 
 Hijackable-Scheduled-Tasks -PersistenceLocations

