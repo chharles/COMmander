@@ -29,13 +29,23 @@ function Missing-Libraries {
     foreach ($key in $HKCR_CLSID_Subkeys) {
         $Subkeys = Get-Item -Path "Registry::$key"
         foreach ($subkey in $Subkeys) {
+
+            $Out = New-Object PSObject
+            $Out | Add-Member Noteproperty 'GUID' $false
+            $Out | Add-Member Noteproperty 'Missing_Library' $false
+            $Out | Add-Member Noteproperty 'PathCanBeWrittenTo' $false
+            $Out | Add-Member Noteproperty 'path' $null
+            $Out | Add-Member NoteProperty 'Warning' $false
+
             # look for keys with InprocServer32 or localServer32 (exes and dlls)
             if ($subkey.Name -like "*procserver*" -or $subkey.Name -like "*localserver*") {
                 $guid = ($subkey.Name).Split('\')[2]
                 # grab the binary associated with the subkey
                 $binary = (Get-ItemProperty $subkey.PSPath).'(default)'
                 # if the binary string is empty, move on to the next subkey...
-                # TODO: This should be looked into
+                # TODO: This should be looked into further
+                $Out.GUID = $guid
+                $Out.Missing_Library = $binary
                 if (!$binary) {
                     continue
                 }
@@ -59,19 +69,21 @@ function Missing-Libraries {
                     # if rundll32.exe /sta is being used to load and run GUIDs directly
                     # This is VERY suspicious
                     } elseif ($rundll_dll_and_parms.contains("sta")) {
-                        "`n`n!!!!! WARNING THIS IS SUSPICIOUS !!!!!"
-                        $binary
+                        #"`n`n!!!!! WARNING THIS IS SUSPICIOUS !!!!!"
                         $rundll32_sta_guid = ($rundll_dll_and_parms -split "sta")[1].trim()
                         $sta_guid_subkeys = Get-ChildItem -Path "Registry::HKCR\CLSID\$rundll32_sta_guid"
                         foreach ($sta_guid_subkey in $sta_guid_subkeys) {
                             if ($sta_guid_subkey.Name -like "*procserver*" -or $sta_guid_subkey.Name -like "*localserver*") {
                                 $binary = (Get-ItemProperty $sta_guid_subkey.PSPath).'(default)'
-                                "$rundll32_sta_guid -> $binary`n`n"
+                                $Out.GUID = $rundll32_sta_guid
+                                $Out.Missing_Library = $binary
+                                $Out.Warning = "rundll32.exe is loading a COM object directly. SUSPICIOUS"
                             }
                         }
                     }
                     
                     $binary = $rundll_dll
+                    $Out.Missing_Library = $binary
                 }
                 
                 # split on exes with parameters
@@ -85,11 +97,11 @@ function Missing-Libraries {
                             if ($explorer_guid_subkey.Name -like "*procserver*" -or $explorer_guid_subkey.Name -like "*localserver*") {
                                 $directed_binary = (Get-ItemProperty $explorer_guid_subkey.PSPath).'(default)'
                                 if ($directed_binary -ne $binary) {
-                                    "`n`n!!!!! WARNING THIS IS SUSPICIOUS !!!!!"
-                                    "https://twitter.com/sbousseaden/status/1365038669447524358?lang=en"
-                                    $binary
-                                    "$explorer_guid -> $directed_binary`n`n"
+                                    $Out.GUID = $explorer_guid
+                                    $Out.Missing_Library = $directed_binary
+                                    $Out.Warning = "Explorer is spawning a different COM object on crashing. https://twitter.com/sbousseaden/status/1365038669447524358?lang=en"
                                 } else {
+                                    # What about COM proxying, I wonder?.. TODO
                                     $binary = "explorer.exe"
                                 }
                             }
@@ -106,7 +118,6 @@ function Missing-Libraries {
                         $binary_exe = $binary -split ".exe /"
                         $binary = $binary_exe[0] + '.exe'
                     } 
-                    # split on '.exe ' MAY BE TROUBLESOME
                     elseif ($binary -like "*.exe *") {
                         $binary_exe = $binary -split ".exe "
                         $binary = $binary_exe[0] + '.exe'
@@ -117,25 +128,29 @@ function Missing-Libraries {
                 #check to see if thi binary exists
                 if (!(Test-Path -Path "$binary")) {
                     # if the binary can't be found in the current path
-                    if (!(Get-Command "$binary") 2>$null) {
-                        # need to add a check to see if the path can be modified by the current user context
-                        "$guid -> $binary"
+                    if (!(Get-Command "$binary")2>$null ) { # typo
+                        $Out.Missing_Library = $binary
                         $path = Split-Path $binary
                         while ($path) {
                             if (!(Test-Path -Path "$path")) {
                                 #Write-Output "$path does not exist"
                             } else {
                                 try{
-                                    New-Item -Path $path -Name "COMPermissionTest.txt" -ItemType "file" -Value "test" 2>$null| Out-Null
-                                    Remove-Item -Path "$path\COMPermissionTest.txt" 2>$null | Out-Null
-                                    Write-Output "current user context can write to $path"
-                                    break
+                                    $r = New-Item -Path $path -Name "COMPermissionTest.txt" -ItemType "file" -Value "test" 2>$null
+                                    if ($r) {
+                                        Remove-Item -Path "$path\COMPermissionTest.txt" 2>$null | Out-Null
+                                        #Write-Output "current user context can write to $path"
+                                        $Out.PathCanBeWrittenTo = $true
+                                        $Out.path = $path
+                                        break
+                                    }
                                 } catch {
                                     # do nothing
                                 }
                             }
                             $path = Split-Path $path
                         }
+                        $Out
                     }
                 }
 
