@@ -132,23 +132,24 @@ function Missing-Libraries {
                         $Out.Missing_Library = $binary
                         $path = Split-Path $binary
                         while ($path) {
+                            # if parent directory does not exist
                             if (!(Test-Path -Path "$path")) {
-                                #Write-Output "$path does not exist"
+                                $path = Split-Path $path
                             } else {
                                 try{
-                                    $r = New-Item -Path $path -Name "COMPermissionTest.txt" -ItemType "file" -Value "test" 2>$null
-                                    if ($r) {
+                                    New-Item -Path $path -Name "COMPermissionTest.txt" -ItemType "file" -Value "test" 2>$null | Out-Null
+                                    if (Test-Path -Path "$path\ComPermissionTest.txt") {
                                         Remove-Item -Path "$path\COMPermissionTest.txt" 2>$null | Out-Null
                                         #Write-Output "current user context can write to $path"
                                         $Out.PathCanBeWrittenTo = $true
                                         $Out.path = $path
-                                        break
+                                        #break
                                     }
+                                    break
                                 } catch {
                                     # do nothing
                                 }
                             }
-                            $path = Split-Path $path
                         }
                         $Out
                     }
